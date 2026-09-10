@@ -1,0 +1,31 @@
+name: routine_assistant
+description: A calm, voice-driven daily routine assistant — reliable reminders, check-ins, and rescheduling.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: ^6.2.1                     # Fraunces + Manrope, free
+  sqflite: ^2.3.0                          # local database, free, on-device
+  path: ^1.8.3
+  flutter_local_notifications: ^17.0.0     # reliable alarms/reminders, free
+  flutter_tts: ^4.0.2                      # on-device text-to-speech, free
+  timezone: ^0.9.2                         # required by flutter_local_notifications
+  flutter_timezone: ^3.0.1                 # detects the device's actual local timezone
+  uuid: ^4.3.3
+  intl: ^0.19.0                            # date formatting for the greeting header
+  just_audio: ^0.9.40                      # local music playback, free
+  audio_session: ^0.1.21                   # audio focus/ducking, free
+  flutter_foreground_task: ^8.10.0         # keeps workout timer alive in background, free
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
