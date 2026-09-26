@@ -65,12 +65,15 @@ class DayVector {
   factory DayVector.fromMap(Map<String, dynamic> map) => DayVector(
         id: map['id'] as String,
         date: DateTime.parse(map['date'] as String),
-        sleepRatio: (map['sleepRatio'] as num).toDouble(),
-        wakeLatencyNormalized: (map['wakeLatencyNormalized'] as num).toDouble(),
-        calendarDensity: (map['calendarDensity'] as num).toDouble(),
+        sleepRatio: (map['sleepRatio'] as num?)?.toDouble() ?? 0.0,
+        wakeLatencyNormalized:
+            (map['wakeLatencyNormalized'] as num?)?.toDouble() ?? 0.0,
+        calendarDensity:
+            (map['calendarDensity'] as num?)?.toDouble() ?? 0.0,
         yesterdayCompletionRate:
-            (map['yesterdayCompletionRate'] as num).toDouble(),
-        assignedCluster: map['assignedCluster'] as int?,
+            (map['yesterdayCompletionRate'] as num?)?.toDouble() ?? 0.0,
+        assignedCluster:
+            (map['assignedCluster'] as num?)?.toInt(),
       );
 }
 
@@ -93,10 +96,15 @@ class DayCluster {
   /// Euclidean distance from this cluster's centroid to a feature vector.
   double distanceTo(List<double> features) {
     double sum = 0;
-    for (int i = 0; i < centroid.length; i++) {
+
+    final length =
+        centroid.length < features.length ? centroid.length : features.length;
+
+    for (int i = 0; i < length; i++) {
       final diff = centroid[i] - features[i];
       sum += diff * diff;
     }
+
     return sum; // squared distance is fine for comparison
   }
 
@@ -108,24 +116,34 @@ class DayCluster {
       };
 
   factory DayCluster.fromMap(Map<String, dynamic> map) => DayCluster(
-        clusterId: map['clusterId'] as int,
-        centroid: (map['centroid'] as String)
+        clusterId: (map['clusterId'] as num?)?.toInt() ?? 0,
+
+        // Defensive centroid parsing.
+        // Handles null, empty, invalid, or malformed values safely.
+        centroid: (map['centroid'] as String? ?? '0,0,0,0')
             .split(',')
-            .map((s) => double.parse(s))
+            .map((s) => double.tryParse(s.trim()) ?? 0.0)
             .toList(),
-        inferredLabel: map['inferredLabel'] as String,
-        memberCount: map['memberCount'] as int,
+
+        inferredLabel: map['inferredLabel'] as String? ?? 'average',
+        memberCount: (map['memberCount'] as num?)?.toInt() ?? 0,
       );
 
   /// Infers a human-readable label from the centroid values.
   /// sleepRatio high + wakeLatency low = high energy.
   /// sleepRatio low + wakeLatency high = rough day.
   static String inferLabel(List<double> centroid) {
+    if (centroid.length < 4) {
+      return 'average';
+    }
+
     final sleep = centroid[0]; // sleepRatio — higher is better
     final wakeLatency = centroid[1]; // higher = harder wake
     final completion = centroid[3]; // higher is better
 
-    if (sleep > 0.8 && wakeLatency < 0.3 && completion > 0.75) {
+    if (sleep > 0.8 &&
+        wakeLatency < 0.3 &&
+        completion > 0.75) {
       return 'high-energy';
     } else if (sleep < 0.5 || wakeLatency > 0.7) {
       return 'rough';

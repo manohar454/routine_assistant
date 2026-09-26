@@ -3,10 +3,6 @@ import '../db/database_helper.dart';
 import '../models/workout_models.dart';
 import '../theme/app_theme.dart';
 
-/// Answers "did I complete today's/this week's plan" and shows the
-/// progress picture the person actually asked to see — a real streak
-/// count and a week-at-a-glance, derived directly from completed
-/// WorkoutSession records rather than a separate tracked flag.
 class WorkoutProgressScreen extends StatefulWidget {
   const WorkoutProgressScreen({super.key});
 
@@ -26,9 +22,9 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
   }
 
   Future<void> _load() async {
-    final sessions =
-        await db.getCompletedSessionsSince(DateTime.now().subtract(const Duration(days: 90)));
-        if (!mounted) return; 
+    final sessions = await db.getCompletedSessionsSince(
+        DateTime.now().subtract(const Duration(days: 90)));
+    if (!mounted) return;
     setState(() {
       _sessions = sessions;
       _loading = false;
@@ -45,8 +41,6 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
   int get _currentStreak {
     int streak = 0;
     var day = DateTime.now();
-    // Today doesn't have to be done yet for the streak to still count —
-    // only check backward from yesterday if today isn't logged yet.
     if (!_wasCompleted(day)) day = day.subtract(const Duration(days: 1));
     while (_wasCompleted(day)) {
       streak++;
@@ -55,120 +49,302 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
     return streak;
   }
 
+  List<DateTime> get _weekDays {
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    return List.generate(7, (i) => monday.add(Duration(days: i)));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final today = DateTime.now();
-    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
-    final weekDays = List.generate(7, (i) => startOfWeek.add(Duration(days: i)));
+    final dark = context.isDark;
+    final weekDays = _weekDays;
+    final streak = _currentStreak;
 
     return Scaffold(
-      appBar: AppBar(leading: const BackButton(), title: const Text('Progress')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-          children: [
-            Text('Your workout progress', style: textTheme.displaySmall),
-            const SizedBox(height: 20),
-
-            Row(
-              children: [
-                Expanded(child: _statCard('$_currentStreak', 'day streak')),
-                const SizedBox(width: 12),
-                Expanded(child: _statCard('${_sessions.length}', 'sessions (90d)')),
-              ],
+      backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
+      appBar: AppBar(
+        backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: dark ? AppColors.darkInk : AppColors.ink),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          'Progress',
+          style: context.text.titleLarge?.copyWith(
+            color: dark ? AppColors.darkInk : AppColors.ink,
+          ),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          20, AppSpacing.md,
+          20, 60,
+        ),
+        children: [
+          // ── Headline ──────────────────────────────────────────────────
+          Text(
+            'Your progress',
+            style: context.text.displaySmall?.copyWith(
+              color: dark ? AppColors.darkInk : AppColors.ink,
+              fontWeight: FontWeight.w800,
             ),
-            const SizedBox(height: 24),
+          ),
+          const SizedBox(height: AppSpacing.lg),
 
-            Text('This week', style: textTheme.titleLarge?.copyWith(fontSize: 16)),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                for (final day in weekDays) _dayDot(day),
-              ],
+          // ── Stat cards ────────────────────────────────────────────────
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  value: '$streak',
+                  label: 'day streak',
+                  icon: Icons.local_fire_department_rounded,
+                  accent: dark ? AppColors.darkAmber : AppColors.amber,
+                  dark: dark,
+                  onText: context.text,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: _StatCard(
+                  value: '${_sessions.length}',
+                  label: '90-day sessions',
+                  icon: Icons.fitness_center_rounded,
+                  accent: dark ? AppColors.darkDeep : AppColors.deep,
+                  dark: dark,
+                  onText: context.text,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          // ── Week view ─────────────────────────────────────────────────
+          Text(
+            'THIS WEEK',
+            style: context.text.labelSmall?.copyWith(
+              color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
             ),
-            const SizedBox(height: 24),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: weekDays.map((day) {
+              final done = _wasCompleted(day);
+              final isToday = day.day == DateTime.now().day &&
+                  day.month == DateTime.now().month &&
+                  day.year == DateTime.now().year;
+              const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-            Text('Recent sessions', style: textTheme.titleLarge?.copyWith(fontSize: 16)),
-            const SizedBox(height: 12),
-            if (_sessions.isEmpty)
-              const Text('No completed sessions yet — finish a workout to see it here.')
-            else
-              for (final s in _sessions.take(10))
-                Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              return Column(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: done
+                          ? (dark ? AppColors.darkMoss : AppColors.moss)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: isToday && !done
+                            ? (dark ? AppColors.darkDeep : AppColors.deep)
+                            : done
+                                ? Colors.transparent
+                                : (dark
+                                    ? AppColors.darkBorder
+                                    : AppColors.mist),
+                        width: isToday && !done ? 2 : 1,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: done
+                        ? const Icon(Icons.check_rounded,
+                            color: Colors.white, size: 16)
+                        : isToday
+                            ? Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color:
+                                      dark ? AppColors.darkDeep : AppColors.deep,
+                                  shape: BoxShape.circle,
+                                ),
+                              )
+                            : null,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    labels[day.weekday - 1],
+                    style: context.text.labelSmall?.copyWith(
+                      color: isToday
+                          ? (dark ? AppColors.darkDeep : AppColors.deep)
+                          : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+                      fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          // ── Recent sessions ───────────────────────────────────────────
+          Text(
+            'RECENT SESSIONS',
+            style: context.text.labelSmall?.copyWith(
+              color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+
+          if (_sessions.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              decoration: BoxDecoration(
+                color: dark ? AppColors.darkCard : AppColors.cardSurface,
+                borderRadius: const BorderRadius.all(AppRadius.md),
+                border: Border.all(
+                    color: dark ? AppColors.darkBorder : AppColors.mist),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.fitness_center_rounded,
+                      size: 32,
+                      color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'No sessions yet',
+                    style: context.text.bodyMedium?.copyWith(
+                      color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._sessions.take(20).map((s) {
+              final durMin = s.endTime != null
+                  ? s.endTime!.difference(s.startTime).inMinutes
+                  : 0;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm + 2,
+                  ),
                   decoration: BoxDecoration(
-                    color: AppColors.cardSurface,
-                    border: Border.all(color: AppColors.mist),
-                    borderRadius: BorderRadius.circular(14),
+                    color: dark ? AppColors.darkCard : AppColors.cardSurface,
+                    borderRadius: const BorderRadius.all(AppRadius.md),
+                    border: Border.all(
+                        color: dark ? AppColors.darkBorder : AppColors.mist),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.check_circle, color: AppColors.moss, size: 20),
-                      const SizedBox(width: 10),
-                      Text('${s.date.day}/${s.date.month}/${s.date.year}'),
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: (dark ? AppColors.darkMoss : AppColors.moss)
+                              .withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.check_rounded,
+                            size: 16,
+                            color: dark ? AppColors.darkMoss : AppColors.moss),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          '${s.date.day}/${s.date.month}/${s.date.year}',
+                          style: context.text.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: dark ? AppColors.darkInk : AppColors.ink,
+                          ),
+                        ),
+                      ),
+                      if (durMin > 0)
+                        Text(
+                          '$durMin min',
+                          style: context.text.labelSmall?.copyWith(
+                            color: dark
+                                ? AppColors.darkInkSubtle
+                                : AppColors.inkSubtle,
+                          ),
+                        ),
                     ],
                   ),
                 ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statCard(String value, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: BoxDecoration(
-        color: AppColors.cardSurface,
-        border: Border.all(color: AppColors.mist),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Text(value,
-              style: const TextStyle(
-                  fontFamily: 'Fraunces', fontSize: 26, fontWeight: FontWeight.w600, color: AppColors.deep)),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF8A8A80))),
+              );
+            }),
         ],
       ),
     );
   }
+}
 
-  Widget _dayDot(DateTime day) {
-    final done = _wasCompleted(day);
-    final isToday = day.day == DateTime.now().day &&
-        day.month == DateTime.now().month &&
-        day.year == DateTime.now().year;
-    const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+class _StatCard extends StatelessWidget {
+  final String value;
+  final String label;
+  final IconData icon;
+  final Color accent;
+  final bool dark;
+  final TextTheme onText;
 
-    return Column(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: done ? AppColors.moss : Colors.transparent,
-            border: Border.all(
-              color: isToday ? AppColors.deep : AppColors.mist,
-              width: isToday ? 2 : 1,
+  const _StatCard({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.accent,
+    required this.dark,
+    required this.onText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: dark ? AppColors.darkCard : AppColors.cardSurface,
+        borderRadius: const BorderRadius.all(AppRadius.md),
+        border: Border.all(
+            color: dark ? AppColors.darkBorder : AppColors.mist),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: accent, size: 20),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            value,
+            style: onText.headlineMedium?.copyWith(
+              color: dark ? AppColors.darkInk : AppColors.ink,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          child: done ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
-        ),
-        const SizedBox(height: 4),
-        Text(labels[day.weekday - 1],
-            style: const TextStyle(fontSize: 11, color: Color(0xFF8A8A80))),
-      ],
+          Text(
+            label,
+            style: onText.labelSmall?.copyWith(
+              color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

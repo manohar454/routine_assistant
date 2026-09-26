@@ -58,13 +58,7 @@ class _SleepTrackerScreenState extends State<SleepTrackerScreen> {
     );
     if (time == null || !mounted) return;
     setState(() {
-      _bedTime = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      );
+      _bedTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
     });
   }
 
@@ -74,93 +68,81 @@ class _SleepTrackerScreenState extends State<SleepTrackerScreen> {
       initialTime: TimeOfDay.fromDateTime(_wakeTime),
     );
     if (time == null || !mounted) return;
-
-    // Only store the time component. The date is resolved in _saveLog()
-    // relative to bedtime.
     setState(() {
       _wakeTime = DateTime(
-        _wakeTime.year,
-        _wakeTime.month,
-        _wakeTime.day,
-        time.hour,
-        time.minute,
-      );
+          _wakeTime.year, _wakeTime.month, _wakeTime.day, time.hour, time.minute);
     });
   }
 
   Future<void> _saveLog() async {
-    // Reconstruct wake time relative to bedtime. If wake time is earlier
-    // than or equal to bedtime, it belongs to the next calendar day.
     final bedDate = DateTime(
-      _bedTime.year,
-      _bedTime.month,
-      _bedTime.day,
-      _bedTime.hour,
-      _bedTime.minute,
+      _bedTime.year, _bedTime.month, _bedTime.day,
+      _bedTime.hour, _bedTime.minute,
     );
-
     var wakeDate = DateTime(
-      bedDate.year,
-      bedDate.month,
-      bedDate.day,
-      _wakeTime.hour,
-      _wakeTime.minute,
+      bedDate.year, bedDate.month, bedDate.day,
+      _wakeTime.hour, _wakeTime.minute,
     );
-
-    if (!wakeDate.isAfter(bedDate)) {
-      wakeDate = wakeDate.add(const Duration(days: 1));
-    }
+    if (!wakeDate.isAfter(bedDate)) wakeDate = wakeDate.add(const Duration(days: 1));
 
     if (wakeDate.difference(bedDate).inHours > 24) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("That's over 24 hours — check your times."),
-        ),
+        const SnackBar(content: Text("That's over 24 hours — check your times.")),
       );
       return;
     }
 
-    final log = SleepLog(
-      id: const Uuid().v4(),
-      bedTime: bedDate,
-      wakeTime: wakeDate,
-    );
+    final log = SleepLog(id: const Uuid().v4(), bedTime: bedDate, wakeTime: wakeDate);
     await db.insertSleepLog(log);
     if (!mounted) return;
     setState(() => _recentLogs = [log, ..._recentLogs]);
   }
 
   Future<void> _editFloor() async {
-    final controller = TextEditingController(
-      text: (_floorMinutes / 60).toStringAsFixed(1),
-    );
+    final controller =
+        TextEditingController(text: (_floorMinutes / 60).toStringAsFixed(1));
     final newHours = await showDialog<double>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sleep floor'),
-        content: TextField(
-          controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(suffixText: 'hours'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+      builder: (ctx) {
+        final dark = ctx.isDark;
+        return AlertDialog(
+          backgroundColor: dark ? AppColors.darkSurface : Colors.white,
+          title: Text(
+            'Sleep floor',
+            style: ctx.text.titleMedium?.copyWith(
+              color: dark ? AppColors.darkInk : AppColors.ink,
+            ),
           ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(ctx, double.tryParse(controller.text)),
-            child: const Text('Save'),
+          content: TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            decoration: InputDecoration(
+              suffixText: 'hours',
+              filled: true,
+              fillColor: dark ? AppColors.darkCard : AppColors.cardSurface,
+              border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(AppRadius.sm),
+                borderSide: BorderSide.none,
+              ),
+            ),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, double.tryParse(controller.text)),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
     );
     if (newHours == null || newHours <= 0) return;
     final minutes = (newHours * 60).round();
     await db.setSetting(_sleepFloorSettingKey, '$minutes');
-    if (mounted) setState(() => _floorMinutes = minutes);
+    if (!mounted) return;
+    setState(() => _floorMinutes = minutes);
   }
 
   String _formatDuration(Duration d) {
@@ -174,170 +156,378 @@ class _SleepTrackerScreenState extends State<SleepTrackerScreen> {
 
   Duration _computeWakeDuration() {
     var wake = DateTime(
-      _bedTime.year,
-      _bedTime.month,
-      _bedTime.day,
-      _wakeTime.hour,
-      _wakeTime.minute,
+      _bedTime.year, _bedTime.month, _bedTime.day,
+      _wakeTime.hour, _wakeTime.minute,
     );
-    if (!wake.isAfter(_bedTime)) {
-      wake = wake.add(const Duration(days: 1));
-    }
+    if (!wake.isAfter(_bedTime)) wake = wake.add(const Duration(days: 1));
     return wake.difference(_bedTime);
   }
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final dark = context.isDark;
     final lastNight = _lastNight;
     final belowFloor =
         lastNight != null && lastNight.duration.inMinutes < _floorMinutes;
+    final wakeDuration = _computeWakeDuration();
+    final floorHours = (_floorMinutes / 60).toStringAsFixed(1);
 
     return Scaffold(
+      backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
       appBar: AppBar(
-        leading: const BackButton(),
-        title: const Text('Sleep'),
+        backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: dark ? AppColors.darkInk : AppColors.ink),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          'Sleep',
+          style: context.text.titleLarge?.copyWith(
+            color: dark ? AppColors.darkInk : AppColors.ink,
+          ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.tune),
+            icon: Icon(Icons.tune_rounded,
+                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
             onPressed: _editFloor,
             tooltip: 'Edit floor',
           ),
         ],
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-          children: [
-            if (lastNight != null) ...[
-              Text('LAST NIGHT', style: textTheme.labelSmall),
-              const SizedBox(height: 4),
-              Text(_formatDuration(lastNight.duration),
-                  style: textTheme.displaySmall),
-              const SizedBox(height: 4),
-              Text(
-                '${_formatTime(lastNight.bedTime)} → ${_formatTime(lastNight.wakeTime)}',
-                style: textTheme.bodyMedium,
-              ),
-              if (belowFloor) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFBEFE3),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.info_outline,
-                          size: 18, color: AppColors.amber),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          "That's under your ${(_floorMinutes / 60).toStringAsFixed(1)}h floor.",
-                          style: const TextStyle(
-                              fontSize: 13, color: AppColors.ink),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 28),
-            ],
-            Text('LOG A NIGHT', style: textTheme.labelSmall),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _timeField(
-                      'Bedtime', _formatTime(_bedTime), _pickBedTime),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _timeField(
-                      'Wake time', _formatTime(_wakeTime), _pickWakeTime),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Duration: ${_formatDuration(_computeWakeDuration())}',
-              style: textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child:
-                  FilledButton(onPressed: _saveLog, child: const Text('Save')),
-            ),
-            const SizedBox(height: 28),
-            if (_recentLogs.isNotEmpty) ...[
-              Text('RECENT NIGHTS', style: textTheme.labelSmall),
-              const SizedBox(height: 10),
-              for (final log in _recentLogs.take(10))
-                Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.cardSurface,
-                    border: Border.all(color: AppColors.mist),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        log.duration.inMinutes < _floorMinutes
-                            ? Icons.info_outline
-                            : Icons.check_circle,
-                        size: 16,
-                        color: log.duration.inMinutes < _floorMinutes
-                            ? AppColors.amber
-                            : AppColors.moss,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '${log.forDate.day}/${log.forDate.month}',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      Text(_formatDuration(log.duration),
-                          style: textTheme.bodyMedium),
-                    ],
-                  ),
-                ),
-            ],
-          ],
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          20, AppSpacing.md,
+          20, 60,
         ),
+        children: [
+          // ── Last night summary ────────────────────────────────────────
+          if (lastNight != null) ...[
+            _SleepSummaryCard(
+              log: lastNight,
+              floorMinutes: _floorMinutes,
+              floorHours: floorHours,
+              belowFloor: belowFloor,
+              dark: dark,
+              formatDuration: _formatDuration,
+              formatTime: _formatTime,
+              onText: context.text,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+
+          // ── Log input ─────────────────────────────────────────────────
+          Text(
+            'LOG A NIGHT',
+            style: context.text.labelSmall?.copyWith(
+              color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+
+          Row(
+            children: [
+              Expanded(
+                child: _TimeButton(
+                  label: 'Bedtime',
+                  value: _formatTime(_bedTime),
+                  dark: dark,
+                  onText: context.text,
+                  onTap: _pickBedTime,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: _TimeButton(
+                  label: 'Wake time',
+                  value: _formatTime(_wakeTime),
+                  dark: dark,
+                  onText: context.text,
+                  onTap: _pickWakeTime,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Icon(
+                Icons.access_time_rounded,
+                size: 14,
+                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Duration: ${_formatDuration(wakeDuration)}',
+                style: context.text.bodySmall?.copyWith(
+                  color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _saveLog,
+              style: FilledButton.styleFrom(
+                backgroundColor: dark ? AppColors.darkDeep : AppColors.deep,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(AppRadius.md),
+                ),
+              ),
+              child: Text(
+                'Save',
+                style: context.text.labelLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          // ── History ───────────────────────────────────────────────────
+          if (_recentLogs.isNotEmpty) ...[
+            Text(
+              'RECENT NIGHTS',
+              style: context.text.labelSmall?.copyWith(
+                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            ..._recentLogs.take(10).map(
+              (log) {
+                final ok = log.duration.inMinutes >= _floorMinutes;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm + 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: dark ? AppColors.darkCard : AppColors.cardSurface,
+                      borderRadius: const BorderRadius.all(AppRadius.md),
+                      border: Border.all(
+                        color: dark ? AppColors.darkBorder : AppColors.mist,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          ok
+                              ? Icons.check_circle_rounded
+                              : Icons.info_outline_rounded,
+                          size: 16,
+                          color: ok
+                              ? (dark ? AppColors.darkMoss : AppColors.moss)
+                              : (dark ? AppColors.darkAmber : AppColors.amber),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            '${log.forDate.day}/${log.forDate.month}',
+                            style: context.text.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: dark ? AppColors.darkInk : AppColors.ink,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          _formatDuration(log.duration),
+                          style: context.text.bodySmall?.copyWith(
+                            color: ok
+                                ? (dark ? AppColors.darkMoss : AppColors.moss)
+                                : (dark ? AppColors.darkAmber : AppColors.amber),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ],
       ),
     );
   }
+}
 
-  Widget _timeField(String label, String value, VoidCallback onTap) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label.toUpperCase(),
-            style: Theme.of(context).textTheme.labelSmall),
-        const SizedBox(height: 6),
-        OutlinedButton(
-          onPressed: onTap,
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            side: const BorderSide(color: AppColors.mist),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+// ─── Last night card ─────────────────────────────────────────────────────────
+
+class _SleepSummaryCard extends StatelessWidget {
+  final SleepLog log;
+  final int floorMinutes;
+  final String floorHours;
+  final bool belowFloor;
+  final bool dark;
+  final String Function(Duration) formatDuration;
+  final String Function(DateTime) formatTime;
+  final TextTheme onText;
+
+  const _SleepSummaryCard({
+    required this.log,
+    required this.floorMinutes,
+    required this.floorHours,
+    required this.belowFloor,
+    required this.dark,
+    required this.formatDuration,
+    required this.formatTime,
+    required this.onText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent =
+        belowFloor ? (dark ? AppColors.darkAmber : AppColors.amber) : (dark ? AppColors.darkMoss : AppColors.moss);
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: dark ? AppColors.darkCard : AppColors.cardSurface,
+        borderRadius: const BorderRadius.all(AppRadius.lg),
+        border: Border.all(color: dark ? AppColors.darkBorder : AppColors.mist),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'LAST NIGHT',
+            style: onText.labelSmall?.copyWith(
+              color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
           ),
-          child: Text(value, style: const TextStyle(color: AppColors.ink)),
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                formatDuration(log.duration),
+                style: onText.displaySmall?.copyWith(
+                  color: accent,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '${formatTime(log.bedTime)} → ${formatTime(log.wakeTime)}',
+                  style: onText.bodySmall?.copyWith(
+                    color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (belowFloor) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+              color: (dark ? AppColors.darkAmber : AppColors.amber)
+              .withValues(alpha: 0.1),
+              borderRadius: const BorderRadius.all(AppRadius.sm),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 14,
+                      color: dark ? AppColors.darkAmber : AppColors.amber),
+                  const SizedBox(width: 6),
+                  Text(
+                    "Under your ${floorHours}h floor",
+                    style: onText.labelSmall?.copyWith(
+                      color: dark ? AppColors.darkAmber : AppColors.amber,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Time button ─────────────────────────────────────────────────────────────
+
+class _TimeButton extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool dark;
+  final TextTheme onText;
+  final VoidCallback onTap;
+
+  const _TimeButton({
+    required this.label,
+    required this.value,
+    required this.dark,
+    required this.onText,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm + 4,
         ),
-      ],
+        decoration: BoxDecoration(
+          color: dark ? AppColors.darkCard : AppColors.cardSurface,
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          border: Border.all(color: dark ? AppColors.darkBorder : AppColors.mist),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: onText.labelSmall?.copyWith(
+                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                fontSize: 10,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: onText.titleMedium?.copyWith(
+                color: dark ? AppColors.darkInk : AppColors.ink,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

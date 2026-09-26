@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import '../db/database_helper.dart';
 import '../models/workout_models.dart';
@@ -67,9 +68,9 @@ class _WorkoutTemplateEditorScreenState
   Future<void> _save() async {
     final t = _template;
     if (t == null) return;
-
     t.name = _nameController.text.trim().isEmpty ? t.name : _nameController.text.trim();
-    t.restBetweenSetsSeconds = int.tryParse(_restSetsController.text) ?? t.restBetweenSetsSeconds;
+    t.restBetweenSetsSeconds =
+        int.tryParse(_restSetsController.text) ?? t.restBetweenSetsSeconds;
     t.restBetweenExercisesSeconds =
         int.tryParse(_restExercisesController.text) ?? t.restBetweenExercisesSeconds;
     t.circuitRounds = int.tryParse(_roundsController.text) ?? t.circuitRounds;
@@ -77,30 +78,24 @@ class _WorkoutTemplateEditorScreenState
         int.tryParse(_restAfterRoundController.text) ?? t.restAfterRoundSeconds;
     t.exerciseIds = _exercises.map((e) => e.id).toList();
     t.warmupExerciseIds = _warmupExercises.map((e) => e.id).toList();
-
     await db.insertWorkoutTemplate(t);
     if (mounted) Navigator.pop(context);
   }
 
-  // ---------------- Main exercises ----------------
-
-  void _removeExercise(Exercise ex) {
-    setState(() => _exercises.remove(ex));
-  }
-
-  void _moveExercise(int index, int delta) {
-    final newIndex = index + delta;
-    if (newIndex < 0 || newIndex >= _exercises.length) return;
+  // ── main exercises ──
+  void _removeExercise(Exercise ex) => setState(() => _exercises.remove(ex));
+  void _moveExercise(int i, int delta) {
+    final j = i + delta;
+    if (j < 0 || j >= _exercises.length) return;
     setState(() {
-      final item = _exercises.removeAt(index);
-      _exercises.insert(newIndex, item);
+      final item = _exercises.removeAt(i);
+      _exercises.insert(j, item);
     });
   }
 
   Future<void> _addExercise() async {
     final allExercises = await db.getUserCreatedExercises();
     if (!mounted) return;
-
     final picked = await showModalBottomSheet<Exercise>(
       context: context,
       isScrollControlled: true,
@@ -109,34 +104,25 @@ class _WorkoutTemplateEditorScreenState
     );
     if (picked == null) return;
     if (_exercises.any((e) => e.id == picked.id)) return;
-
-    // Let the person confirm/adjust sets & reps for THIS day before adding
-    // — this is what makes it per-day rather than silently reusing (and
-    // risking overwriting) whatever the shared exercise's defaults are.
     await _customizeForThisDay(picked, isWarmup: false);
     if (!mounted) return;
     setState(() => _exercises.add(picked));
   }
 
-  // ---------------- Warm-up (the previously-missing dynamic piece) ----------------
-
-  void _removeWarmup(Exercise ex) {
-    setState(() => _warmupExercises.remove(ex));
-  }
-
-  void _moveWarmup(int index, int delta) {
-    final newIndex = index + delta;
-    if (newIndex < 0 || newIndex >= _warmupExercises.length) return;
+  // ── warmup exercises ──
+  void _removeWarmup(Exercise ex) => setState(() => _warmupExercises.remove(ex));
+  void _moveWarmup(int i, int delta) {
+    final j = i + delta;
+    if (j < 0 || j >= _warmupExercises.length) return;
     setState(() {
-      final item = _warmupExercises.removeAt(index);
-      _warmupExercises.insert(newIndex, item);
+      final item = _warmupExercises.removeAt(i);
+      _warmupExercises.insert(j, item);
     });
   }
 
   Future<void> _addWarmupExercise() async {
     final allExercises = await db.getUserCreatedExercises();
     if (!mounted) return;
-
     final picked = await showModalBottomSheet<Exercise>(
       context: context,
       isScrollControlled: true,
@@ -145,17 +131,14 @@ class _WorkoutTemplateEditorScreenState
     );
     if (picked == null) return;
     if (_warmupExercises.any((e) => e.id == picked.id)) return;
-
     await _customizeForThisDay(picked, isWarmup: true);
     if (!mounted) return;
     setState(() => _warmupExercises.add(picked));
   }
 
-  /// Shared by both the main exercise list and warm-up — opens the sets/
-  /// reps editor for one exercise, saving the result as a per-template
-  /// override rather than mutating the shared Exercise record.
   Future<void> _customizeForThisDay(Exercise exercise, {required bool isWarmup}) async {
     final t = _template!;
+    final dark = context.isDark;
     final setsController =
         TextEditingController(text: '${t.effectiveSets(exercise)}');
     final repsController = TextEditingController(text: t.effectiveReps(exercise));
@@ -163,33 +146,52 @@ class _WorkoutTemplateEditorScreenState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Customize ${exercise.name} for this day'),
+        backgroundColor: dark ? AppColors.darkSurface : Colors.white,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(AppRadius.lg)),
+        title: Text(exercise.name,
+            style: TextStyle(
+              fontFamily: 'Fraunces',
+              fontWeight: FontWeight.w700,
+              color: dark ? AppColors.darkInk : AppColors.ink,
+            )),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'This only changes it for "${t.name}"${isWarmup ? " warm-up" : ""} — '
-              'other days using ${exercise.name} are unaffected.',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF8A8A80)),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: dark
+                    ? AppColors.darkDeep.withValues(alpha: 0.15)
+                    : AppColors.deep.withValues(alpha: 0.07),
+                borderRadius: const BorderRadius.all(AppRadius.sm),
+              ),
+              child: Text(
+                'Customizes only "${t.name}"${isWarmup ? " warm-up" : ""} — '
+                'other days using this exercise are unaffected.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                ),
+              ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: AppSpacing.md),
             Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: _DialogField(
+                    label: 'Sets',
                     controller: setsController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Sets'),
+                    dark: dark,
+                    numeric: true,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
-                  child: TextField(
+                  child: _DialogField(
+                    label: 'Target',
                     controller: repsController,
-                    decoration: const InputDecoration(
-                      labelText: 'Target',
-                      hintText: 'e.g. 10, Max, 45 sec',
-                    ),
+                    dark: dark,
+                    hint: 'e.g. 10, Max, 45s',
                   ),
                 ),
               ],
@@ -197,19 +199,30 @@ class _WorkoutTemplateEditorScreenState
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirm')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel',
+                style: TextStyle(
+                    color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: dark ? AppColors.darkDeep : AppColors.deep,
+              shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(AppRadius.pill)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirm'),
+          ),
         ],
       ),
     );
     if (confirmed != true) return;
     if (!mounted) return;
-
     final newSets = int.tryParse(setsController.text) ?? exercise.targetSets;
     final newReps = repsController.text.trim().isEmpty
         ? exercise.repsTarget
         : repsController.text.trim();
-
     setState(() {
       if (newSets != exercise.targetSets) {
         t.setsOverrides[exercise.id] = newSets;
@@ -226,157 +239,240 @@ class _WorkoutTemplateEditorScreenState
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final dark = context.isDark;
+    final text = context.text;
 
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
+        body: Center(
+          child: CircularProgressIndicator(
+            color: dark ? AppColors.darkDeep : AppColors.deep,
+            strokeWidth: 2,
+          ),
+        ),
+      );
     }
     if (_template == null) {
       return Scaffold(
+        backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
         appBar: AppBar(leading: const BackButton()),
         body: const Center(child: Text('Template not found.')),
       );
     }
-
     final t = _template!;
 
     return Scaffold(
+      backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
       appBar: AppBar(
-        leading: const BackButton(),
-        title: const Text('Edit day'),
+        backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 18, color: dark ? AppColors.darkInk : AppColors.ink),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text('Edit Day',
+            style: text.titleMedium?.copyWith(
+              fontFamily: 'Fraunces',
+              fontWeight: FontWeight.w700,
+              color: dark ? AppColors.darkInk : AppColors.ink,
+            )),
+        centerTitle: false,
         actions: [
-          TextButton(onPressed: _save, child: const Text('Save')),
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.md),
+            child: GestureDetector(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                _save();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md, vertical: AppSpacing.xs + 2),
+                decoration: BoxDecoration(
+                  color: dark ? AppColors.darkDeep : AppColors.deep,
+                  borderRadius: const BorderRadius.all(AppRadius.pill),
+                ),
+                child: Text('Save',
+                    style: text.labelMedium?.copyWith(
+                      color: dark ? AppColors.darkCanvas : AppColors.canvas,
+                      fontWeight: FontWeight.w700,
+                    )),
+              ),
+            ),
+          ),
         ],
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+          padding: const EdgeInsets.fromLTRB(
+              20, AppSpacing.md, 20, AppSpacing.xxl),
           children: [
-            _label('Day name'),
-            TextField(controller: _nameController),
-            const SizedBox(height: 20),
+            // Day name
+            _SectionLabel('Day name', dark: dark, text: text),
+            _StyledTextField(
+                controller: _nameController, dark: dark, hint: 'e.g. Push Day'),
+            const SizedBox(height: AppSpacing.lg),
 
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
+            // Rest day toggle
+            _RestDayToggle(
               value: t.isRestDay,
+              dark: dark,
+              text: text,
               onChanged: (v) => setState(() => t.isRestDay = v),
-              title: const Text('Rest day (no exercises)'),
-              activeThumbColor: AppColors.moss,
             ),
 
             if (!t.isRestDay) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.lg),
 
-              // ---------------- Warm-up section (new) ----------------
-              _label('Warm-up'),
+              // ── Warm-up ──
+              _SectionLabel('Warm-up', dark: dark, text: text),
               Text(
-                'Runs before the main workout. Tap an item to customize it for this day.',
-                style: textTheme.bodyMedium,
+                'Runs before the main workout. Tap to customize for this day.',
+                style: text.bodySmall
+                    ?.copyWith(color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               for (int i = 0; i < _warmupExercises.length; i++)
-                _exerciseRow(
+                _ExerciseRow(
                   exercise: _warmupExercises[i],
                   index: i,
                   count: _warmupExercises.length,
-                  onTap: () => _customizeForThisDay(_warmupExercises[i], isWarmup: true),
+                  template: t,
+                  dark: dark,
+                  text: text,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    _customizeForThisDay(_warmupExercises[i], isWarmup: true);
+                  },
                   onMoveUp: () => _moveWarmup(i, -1),
                   onMoveDown: () => _moveWarmup(i, 1),
-                  onRemove: () => _removeWarmup(_warmupExercises[i]),
+                  onRemove: () {
+                    HapticFeedback.lightImpact();
+                    _removeWarmup(_warmupExercises[i]);
+                  },
                 ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _addWarmupExercise,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add warm-up exercise'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.mist),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                ),
+              const SizedBox(height: AppSpacing.sm),
+              _AddExerciseButton(
+                label: 'Add warm-up exercise',
+                dark: dark,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  _addWarmupExercise();
+                },
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: AppSpacing.xl),
 
-              _label('Session type'),
+              // ── Session type ──
+              _SectionLabel('Session type', dark: dark, text: text),
               Row(
                 children: [
                   Expanded(
-                    child: _segButton(
-                      'Sequential',
-                      t.sessionType == SessionType.sequential,
-                      () => setState(() => t.sessionType = SessionType.sequential),
+                    child: _SegButton(
+                      label: 'Sequential',
+                      selected: t.sessionType == SessionType.sequential,
+                      dark: dark,
+                      onTap: () =>
+                          setState(() => t.sessionType = SessionType.sequential),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: AppSpacing.sm),
                   Expanded(
-                    child: _segButton(
-                      'Circuit',
-                      t.sessionType == SessionType.circuit,
-                      () => setState(() => t.sessionType = SessionType.circuit),
+                    child: _SegButton(
+                      label: 'Circuit',
+                      selected: t.sessionType == SessionType.circuit,
+                      dark: dark,
+                      onTap: () =>
+                          setState(() => t.sessionType = SessionType.circuit),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpacing.lg),
 
-              if (t.sessionType == SessionType.sequential) ...[
+              // Rest settings
+              if (t.sessionType == SessionType.sequential)
                 Row(
                   children: [
                     Expanded(
-                      child: _numberField('Rest between sets (s)', _restSetsController),
+                      child: _NumberField(
+                        label: 'Rest sets (s)',
+                        controller: _restSetsController,
+                        dark: dark,
+                        text: text,
+                      ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: _numberField(
-                          'Rest between exercises (s)', _restExercisesController),
+                      child: _NumberField(
+                        label: 'Rest exercises (s)',
+                        controller: _restExercisesController,
+                        dark: dark,
+                        text: text,
+                      ),
                     ),
                   ],
-                ),
-              ] else ...[
+                )
+              else
                 Row(
                   children: [
-                    Expanded(child: _numberField('Rounds', _roundsController)),
-                    const SizedBox(width: 10),
                     Expanded(
-                      child: _numberField('Rest after round (s)', _restAfterRoundController),
+                      child: _NumberField(
+                        label: 'Rounds',
+                        controller: _roundsController,
+                        dark: dark,
+                        text: text,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: _NumberField(
+                        label: 'Rest after round (s)',
+                        controller: _restAfterRoundController,
+                        dark: dark,
+                        text: text,
+                      ),
                     ),
                   ],
                 ),
-              ],
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.xl),
 
-              _label('Exercises'),
+              // ── Exercises ──
+              _SectionLabel('Exercises', dark: dark, text: text),
               Text(
-                'Tap an exercise to customize its sets/reps for this day only.',
-                style: textTheme.bodyMedium,
+                'Tap to customize sets/reps for this day only.',
+                style: text.bodySmall
+                    ?.copyWith(color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               for (int i = 0; i < _exercises.length; i++)
-                _exerciseRow(
+                _ExerciseRow(
                   exercise: _exercises[i],
                   index: i,
                   count: _exercises.length,
-                  onTap: () => _customizeForThisDay(_exercises[i], isWarmup: false),
+                  template: t,
+                  dark: dark,
+                  text: text,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    _customizeForThisDay(_exercises[i], isWarmup: false);
+                  },
                   onMoveUp: () => _moveExercise(i, -1),
                   onMoveDown: () => _moveExercise(i, 1),
-                  onRemove: () => _removeExercise(_exercises[i]),
+                  onRemove: () {
+                    HapticFeedback.lightImpact();
+                    _removeExercise(_exercises[i]);
+                  },
                 ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _addExercise,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add exercise'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.mist),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                ),
+              const SizedBox(height: AppSpacing.sm),
+              _AddExerciseButton(
+                label: 'Add exercise',
+                dark: dark,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  _addExercise();
+                },
               ),
             ],
           ],
@@ -384,112 +480,72 @@ class _WorkoutTemplateEditorScreenState
       ),
     );
   }
+}
 
-  /// One row shared by both the warm-up list and the main exercise list —
-  /// same interaction pattern (tap to customize, reorder, remove) in both
-  /// places, so warm-up is no longer a second-class, static citizen.
-  Widget _exerciseRow({
-    required Exercise exercise,
-    required int index,
-    required int count,
-    required VoidCallback onTap,
-    required VoidCallback onMoveUp,
-    required VoidCallback onMoveDown,
-    required VoidCallback onRemove,
-  }) {
-    final t = _template!;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.cardSurface,
-          border: Border.all(color: AppColors.mist),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(exercise.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-                      if (t.hasOverride(exercise.id)) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFBEFE3),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Text('CUSTOM',
-                              style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.amber)),
-                        ),
-                      ],
-                    ],
-                  ),
-                  Text(
-                    '${t.effectiveSets(exercise)}x${t.effectiveReps(exercise)} · ${exercise.equipment}',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF8A8A80)),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.arrow_upward, size: 18),
-              onPressed: index == 0 ? null : onMoveUp,
-            ),
-            IconButton(
-              icon: const Icon(Icons.arrow_downward, size: 18),
-              onPressed: index == count - 1 ? null : onMoveDown,
-            ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 18, color: AppColors.clay),
-              onPressed: onRemove,
-            ),
-          ],
+// ─────────────────────────────────────────────
+// Sub-widgets
+// ─────────────────────────────────────────────
+
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  final bool dark;
+  final TextTheme text;
+  const _SectionLabel(this.label, {required this.dark, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Text(
+        label.toUpperCase(),
+        style: text.labelSmall?.copyWith(
+          letterSpacing: 1.2,
+          fontWeight: FontWeight.w700,
+          color: (dark ? AppColors.darkDeep : AppColors.deep).withValues(alpha: 0.8),
         ),
       ),
     );
   }
+}
 
-  Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
-      );
+class _StyledTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final bool dark;
+  final String? hint;
+  final bool numeric;
+  const _StyledTextField({
+    required this.controller,
+    required this.dark,
+    this.hint,
+    this.numeric = false,
+  });
 
-  Widget _numberField(String label, TextEditingController controller) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _label(label),
-        TextField(controller: controller, keyboardType: TextInputType.number),
-      ],
-    );
-  }
-
-  Widget _segButton(String label, bool selected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.deep : AppColors.cardSurface,
-          border: Border.all(color: selected ? AppColors.deep : AppColors.mist),
-          borderRadius: BorderRadius.circular(12),
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      keyboardType: numeric ? TextInputType.number : TextInputType.text,
+      style: TextStyle(
+        color: dark ? AppColors.darkInk : AppColors.ink,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle:
+            TextStyle(color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+        filled: true,
+        fillColor: dark
+            ? AppColors.darkCard.withValues(alpha: 0.8)
+            : AppColors.mist.withValues(alpha: 0.4),
+        border: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(AppRadius.md),
+          borderSide: BorderSide.none,
         ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: selected ? AppColors.canvas : AppColors.deepLight,
+        focusedBorder: OutlineInputBorder(
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          borderSide: BorderSide(
+            color: dark ? AppColors.darkDeep : AppColors.deep,
+            width: 1.5,
           ),
         ),
       ),
@@ -497,10 +553,345 @@ class _WorkoutTemplateEditorScreenState
   }
 }
 
-/// Bottom sheet for adding an exercise (used by both the warm-up and main
-/// exercise sections): pick an existing user-created one, or create a
-/// brand new one on the spot. Only exercises the person actually created
-/// appear here — the built-in reference library is never suggested.
+class _DialogField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final bool dark;
+  final String? hint;
+  final bool numeric;
+  const _DialogField({
+    required this.label,
+    required this.controller,
+    required this.dark,
+    this.hint,
+    this.numeric = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      keyboardType: numeric ? TextInputType.number : TextInputType.text,
+      style: TextStyle(color: dark ? AppColors.darkInk : AppColors.ink),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle:
+            TextStyle(color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+        hintText: hint,
+        hintStyle:
+            TextStyle(color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+        filled: true,
+        fillColor: dark
+            ? AppColors.darkCard.withValues(alpha: 0.8)
+            : AppColors.mist.withValues(alpha: 0.3),
+        border: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(AppRadius.sm),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+}
+
+class _RestDayToggle extends StatelessWidget {
+  final bool value;
+  final bool dark;
+  final TextTheme text;
+  final ValueChanged<bool> onChanged;
+  const _RestDayToggle({
+    required this.value,
+    required this.dark,
+    required this.text,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: dark ? AppColors.darkCard : AppColors.cardSurface,
+        borderRadius: const BorderRadius.all(AppRadius.md),
+        border: Border.all(
+          color: dark ? AppColors.darkBorder.withValues(alpha: 0.5) : AppColors.mist,
+        ),
+      ),
+      child: SwitchListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 2),
+        value: value,
+        activeColor: dark ? AppColors.darkAmber : AppColors.amber,
+        onChanged: onChanged,
+        title: Text('Rest day',
+            style: text.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: dark ? AppColors.darkInk : AppColors.ink,
+            )),
+        subtitle: Text('No exercises — recovery only',
+            style: text.bodySmall
+                ?.copyWith(color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)),
+      ),
+    );
+  }
+}
+
+class _NumberField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final bool dark;
+  final TextTheme text;
+  const _NumberField({
+    required this.label,
+    required this.controller,
+    required this.dark,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionLabel(label, dark: dark, text: text),
+        _StyledTextField(controller: controller, dark: dark, numeric: true),
+      ],
+    );
+  }
+}
+
+class _SegButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final bool dark;
+  final VoidCallback onTap;
+  const _SegButton({
+    required this.label,
+    required this.selected,
+    required this.dark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final activeColor = dark ? AppColors.darkDeep : AppColors.deep;
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+        decoration: BoxDecoration(
+          color: selected
+              ? activeColor
+              : (dark ? AppColors.darkCard : AppColors.cardSurface),
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          border: Border.all(
+            color: selected
+                ? activeColor
+                : (dark
+                    ? AppColors.darkBorder.withValues(alpha: 0.6)
+                    : AppColors.mist),
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            color: selected
+                ? (dark ? AppColors.darkCanvas : AppColors.canvas)
+                : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ExerciseRow extends StatelessWidget {
+  final Exercise exercise;
+  final int index;
+  final int count;
+  final WorkoutTemplate template;
+  final bool dark;
+  final TextTheme text;
+  final VoidCallback onTap;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
+  final VoidCallback onRemove;
+  const _ExerciseRow({
+    required this.exercise,
+    required this.index,
+    required this.count,
+    required this.template,
+    required this.dark,
+    required this.text,
+    required this.onTap,
+    required this.onMoveUp,
+    required this.onMoveDown,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOverride = template.hasOverride(exercise.id);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.sm + 2),
+        decoration: BoxDecoration(
+          color: dark ? AppColors.darkCard : AppColors.cardSurface,
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          border: Border.all(
+            color: dark
+                ? AppColors.darkBorder.withValues(alpha: 0.5)
+                : AppColors.mist.withValues(alpha: 0.7),
+          ),
+        ),
+        child: Row(
+          children: [
+            // Reorder handle
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: index == 0 ? null : onMoveUp,
+                  child: Icon(Icons.arrow_upward_rounded,
+                      size: 16,
+                      color: index == 0
+                          ? (dark
+                              ? AppColors.darkBorder
+                              : AppColors.mist)
+                          : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)),
+                ),
+                const SizedBox(height: 2),
+                GestureDetector(
+                  onTap: index == count - 1 ? null : onMoveDown,
+                  child: Icon(Icons.arrow_downward_rounded,
+                      size: 16,
+                      color: index == count - 1
+                          ? (dark
+                              ? AppColors.darkBorder
+                              : AppColors.mist)
+                          : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)),
+                ),
+              ],
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(exercise.name,
+                            style: text.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: dark ? AppColors.darkInk : AppColors.ink,
+                            )),
+                      ),
+                      if (hasOverride) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.xs + 2, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: dark
+                                ? AppColors.darkAmber.withValues(alpha: 0.15)
+                                : AppColors.amber.withValues(alpha: 0.12),
+                            borderRadius: const BorderRadius.all(AppRadius.pill),
+                          ),
+                          child: Text(
+                            'CUSTOM',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.8,
+                              color: dark
+                                  ? AppColors.darkAmber
+                                  : AppColors.amber,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${template.effectiveSets(exercise)}× ${template.effectiveReps(exercise)} · ${exercise.equipment}',
+                    style: text.bodySmall?.copyWith(
+                        color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+                  ),
+                ],
+              ),
+            ),
+            // Remove
+            GestureDetector(
+              onTap: onRemove,
+              child: Container(
+                padding: const EdgeInsets.all(AppSpacing.xs + 2),
+                decoration: BoxDecoration(
+                  color: AppColors.clay.withValues(alpha: 0.1),
+                  borderRadius: const BorderRadius.all(AppRadius.sm),
+                ),
+                child: const Icon(Icons.close_rounded,
+                    size: 16, color: AppColors.clay),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddExerciseButton extends StatelessWidget {
+  final String label;
+  final bool dark;
+  final VoidCallback onTap;
+  const _AddExerciseButton(
+      {required this.label, required this.dark, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+        decoration: BoxDecoration(
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          border: Border.all(
+            color: dark ? AppColors.darkBorder : AppColors.mist,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_rounded,
+                size: 18, color: dark ? AppColors.darkDeep : AppColors.deep),
+            const SizedBox(width: AppSpacing.xs),
+            Text(label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: dark ? AppColors.darkDeep : AppColors.deep,
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Exercise picker bottom sheet
+// ─────────────────────────────────────────────
+
 class _ExercisePickerSheet extends StatefulWidget {
   final List<Exercise> existing;
   const _ExercisePickerSheet({required this.existing});
@@ -521,14 +912,13 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
   String _equipment = 'bodyweight';
   bool _isDuration = false;
   String _durationUnit = 'sec';
-
   bool _showNameError = false;
 
   List<Exercise> get _nameSuggestions {
-    final query = _nameController.text.trim().toLowerCase();
-    if (query.isEmpty) return [];
+    final q = _nameController.text.trim().toLowerCase();
+    if (q.isEmpty) return [];
     return widget.existing
-        .where((e) => e.name.toLowerCase().contains(query))
+        .where((e) => e.name.toLowerCase().contains(q))
         .take(5)
         .toList();
   }
@@ -536,16 +926,11 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
   Future<void> _createAndReturn() async {
     if (_nameController.text.trim().isEmpty) {
       setState(() => _showNameError = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter an exercise name before adding it.')),
-      );
       return;
     }
-
     final repsTarget = _isDuration
         ? '${_durationValueController.text.trim().isEmpty ? "30" : _durationValueController.text.trim()} $_durationUnit'
         : (_repsController.text.trim().isEmpty ? '10' : _repsController.text.trim());
-
     final exercise = Exercise(
       id: const Uuid().v4(),
       name: _nameController.text.trim(),
@@ -560,68 +945,164 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = context.isDark;
     final filtered = widget.existing
         .where((e) => e.name.toLowerCase().contains(_search.toLowerCase()))
         .toList();
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-      decoration: const BoxDecoration(
-        color: AppColors.cardSurface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      height: MediaQuery.of(context).size.height * 0.78,
+      padding: const EdgeInsets.fromLTRB(
+          20, AppSpacing.sm, 20, AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: dark ? AppColors.darkSurface : Colors.white,
+        borderRadius:
+            const BorderRadius.vertical(top: AppRadius.xl),
       ),
-      child: _creatingNew ? _buildCreateForm() : _buildPicker(filtered),
+      child: _creatingNew ? _buildCreateForm(dark) : _buildPicker(filtered, dark),
     );
   }
 
-  Widget _buildPicker(List<Exercise> filtered) {
+  Widget _buildPicker(List<Exercise> filtered, bool dark) {
+    final text = context.text;
     return Column(
       children: [
-        Container(
-          width: 36, height: 4,
-          decoration: BoxDecoration(color: AppColors.mist, borderRadius: BorderRadius.circular(4)),
+        // handle
+        Center(
+          child: Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: dark ? AppColors.darkBorder : AppColors.mist,
+              borderRadius: const BorderRadius.all(AppRadius.pill),
+            ),
+          ),
         ),
-        const SizedBox(height: 16),
-        Text('Add exercise', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 4),
+        const SizedBox(height: AppSpacing.md),
+        Text('Add Exercise',
+            style: text.titleMedium?.copyWith(
+              fontFamily: 'Fraunces',
+              fontWeight: FontWeight.w700,
+              color: dark ? AppColors.darkInk : AppColors.ink,
+            )),
+        const SizedBox(height: AppSpacing.xs),
         Text(
           'Only exercises you\'ve created appear here.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: text.bodySmall
+              ?.copyWith(color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.md),
         TextField(
-          decoration: const InputDecoration(hintText: 'Search your exercises...'),
+          style: TextStyle(color: dark ? AppColors.darkInk : AppColors.ink),
+          decoration: InputDecoration(
+            hintText: 'Search your exercises…',
+            hintStyle: TextStyle(
+                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+            prefixIcon: Icon(Icons.search_rounded,
+                size: 18,
+                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+            filled: true,
+            fillColor: dark
+                ? AppColors.darkCard.withValues(alpha: 0.8)
+                : AppColors.mist.withValues(alpha: 0.4),
+            border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(AppRadius.md),
+                borderSide: BorderSide.none),
+          ),
           onChanged: (v) => setState(() => _search = v),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.sm),
         Expanded(
           child: filtered.isEmpty
-              ? const Center(
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      'No exercises yet — create your first one below.',
-                      textAlign: TextAlign.center,
+                    padding: const EdgeInsets.all(AppSpacing.xl),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.fitness_center_rounded,
+                            size: 32,
+                            color: (dark ? AppColors.darkDeep : AppColors.deep)
+                                .withValues(alpha: 0.35)),
+                        const SizedBox(height: AppSpacing.md),
+                        Text(
+                          _search.isEmpty
+                              ? 'No exercises yet — create your first one below.'
+                              : 'No results for "$_search".',
+                          textAlign: TextAlign.center,
+                          style: text.bodySmall?.copyWith(
+                              color: dark
+                                  ? AppColors.darkInkSubtle
+                                  : AppColors.inkSubtle),
+                        ),
+                      ],
                     ),
                   ),
                 )
-              : ListView(
-                  children: [
-                    for (final e in filtered)
-                      ListTile(
-                        title: Text(e.name),
-                        subtitle: Text('${e.targetSets}x${e.repsTarget} · ${e.equipment}'),
-                        onTap: () => Navigator.pop(context, e),
+              : ListView.builder(
+                  itemCount: filtered.length,
+                  itemBuilder: (_, i) {
+                    final e = filtered[i];
+                    return GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        Navigator.pop(context, e);
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: AppSpacing.xs),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md, vertical: AppSpacing.sm + 2),
+                        decoration: BoxDecoration(
+                          color: dark ? AppColors.darkCard : AppColors.mist.withValues(alpha: 0.35),
+                          borderRadius: const BorderRadius.all(AppRadius.sm),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(e.name,
+                                      style: text.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color:
+                                            dark ? AppColors.darkInk : AppColors.ink,
+                                      )),
+                                  Text(
+                                    '${e.targetSets}× ${e.repsTarget} · ${e.equipment}',
+                                    style: text.bodySmall?.copyWith(
+                                        color: dark
+                                            ? AppColors.darkInkSubtle
+                                            : AppColors.inkSubtle),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(Icons.add_circle_outline_rounded,
+                                size: 18,
+                                color: dark ? AppColors.darkDeep : AppColors.deep),
+                          ],
+                        ),
                       ),
-                  ],
+                    );
+                  },
                 ),
         ),
+        const SizedBox(height: AppSpacing.sm),
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: () => setState(() => _creatingNew = true),
-            icon: const Icon(Icons.add),
+            style: FilledButton.styleFrom(
+              backgroundColor: dark ? AppColors.darkDeep : AppColors.deep,
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(AppRadius.md)),
+            ),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              setState(() => _creatingNew = true);
+            },
+            icon: const Icon(Icons.add_rounded, size: 18),
             label: const Text('Create new exercise'),
           ),
         ),
@@ -629,99 +1110,191 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
     );
   }
 
-  Widget _buildCreateForm() {
+  Widget _buildCreateForm(bool dark) {
+    final text = context.text;
     final suggestions = _nameSuggestions;
-
     return ListView(
       children: [
         Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => setState(() => _creatingNew = false),
+            GestureDetector(
+              onTap: () => setState(() => _creatingNew = false),
+              child: Icon(Icons.arrow_back_ios_new_rounded,
+                  size: 18, color: dark ? AppColors.darkInk : AppColors.ink),
             ),
-            Text('New exercise', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(width: AppSpacing.sm),
+            Text('New Exercise',
+                style: text.titleMedium?.copyWith(
+                  fontFamily: 'Fraunces',
+                  fontWeight: FontWeight.w700,
+                  color: dark ? AppColors.darkInk : AppColors.ink,
+                )),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.md),
+
+        // Name field
         TextField(
           controller: _nameController,
+          style: TextStyle(color: dark ? AppColors.darkInk : AppColors.ink),
           onChanged: (_) {
             if (_showNameError) setState(() => _showNameError = false);
             setState(() {});
           },
           decoration: InputDecoration(
             hintText: 'Exercise name',
+            hintStyle: TextStyle(
+                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
             errorText: _showNameError ? 'Name is required' : null,
+            filled: true,
+            fillColor: dark
+                ? AppColors.darkCard.withValues(alpha: 0.8)
+                : AppColors.mist.withValues(alpha: 0.4),
+            border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(AppRadius.md),
+                borderSide: BorderSide.none),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: const BorderRadius.all(AppRadius.md),
+              borderSide: BorderSide(
+                  color: dark ? AppColors.darkDeep : AppColors.deep, width: 1.5),
+            ),
           ),
         ),
+
+        // Suggestions
         if (suggestions.isNotEmpty) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           Container(
             decoration: BoxDecoration(
-              border: Border.all(color: AppColors.mist),
-              borderRadius: BorderRadius.circular(12),
+            color: dark ? AppColors.darkCard : AppColors.mist.withValues(alpha: 0.3),
+            borderRadius: const BorderRadius.all(AppRadius.md),
             ),
             child: Column(
-              children: [
-                for (final s in suggestions)
-                  ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.history, size: 18, color: AppColors.deepLight),
-                    title: Text(s.name),
-                    subtitle: Text('${s.targetSets}x${s.repsTarget} · ${s.equipment} — already exists'),
-                    onTap: () => Navigator.pop(context, s),
-                  ),
-              ],
+              children: suggestions
+                  .map((s) => ListTile(
+                        dense: true,
+                        leading: Icon(Icons.history_rounded,
+                            size: 16,
+                            color: dark
+                                ? AppColors.darkInkSubtle
+                                : AppColors.inkSubtle),
+                        title: Text(s.name,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: dark ? AppColors.darkInk : AppColors.ink)),
+                        subtitle: Text(
+                            '${s.targetSets}× ${s.repsTarget} · ${s.equipment} — already exists',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: dark
+                                    ? AppColors.darkInkSubtle
+                                    : AppColors.inkSubtle)),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.pop(context, s);
+                        },
+                      ))
+                  .toList(),
             ),
           ),
         ],
-        const SizedBox(height: 14),
+        const SizedBox(height: AppSpacing.md),
+
+        // Equipment chips
+        _SectionLabel('Equipment', dark: dark, text: text),
         Wrap(
-          spacing: 8,
-          children: [
-            for (final eq in _equipmentOptions)
-              ChoiceChip(
-                label: Text(eq),
-                selected: _equipment == eq,
-                onSelected: (_) => setState(() => _equipment = eq),
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          children: _equipmentOptions.map((eq) {
+            final sel = _equipment == eq;
+            return GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _equipment = eq);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md, vertical: AppSpacing.xs + 2),
+                decoration: BoxDecoration(
+                  color: sel
+                      ? (dark ? AppColors.darkDeep : AppColors.deep)
+                      : (dark
+                          ? AppColors.darkCard
+                          : AppColors.mist.withValues(alpha: 0.5)),
+                  borderRadius: const BorderRadius.all(AppRadius.pill),
+                ),
+                child: Text(eq,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: sel
+                          ? (dark ? AppColors.darkCanvas : AppColors.canvas)
+                          : (dark ? AppColors.darkInk : AppColors.ink),
+                    )),
               ),
-          ],
+            );
+          }).toList(),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: AppSpacing.md),
+
+        // Target type toggle
         Row(
           children: [
             Expanded(
-              child: _toggleChip('Rep count', !_isDuration, () => setState(() => _isDuration = false)),
+              child: _SegButton(
+                label: 'Rep count',
+                selected: !_isDuration,
+                dark: dark,
+                onTap: () => setState(() => _isDuration = false),
+              ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: AppSpacing.sm),
             Expanded(
-              child: _toggleChip('Time-based', _isDuration, () => setState(() => _isDuration = true)),
+              child: _SegButton(
+                label: 'Time-based',
+                selected: _isDuration,
+                dark: dark,
+                onTap: () => setState(() => _isDuration = true),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: AppSpacing.md),
+
         if (_isDuration)
           Row(
             children: [
               Expanded(
-                child: TextField(
+                child: _DialogField(
+                  label: 'Duration',
                   controller: _durationValueController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Duration', hintText: 'e.g. 30'),
+                  dark: dark,
+                  hint: 'e.g. 30',
+                  numeric: true,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Row(
                   children: [
                     Expanded(
-                        child: _toggleChip('sec', _durationUnit == 'sec',
-                            () => setState(() => _durationUnit = 'sec'))),
-                    const SizedBox(width: 6),
+                      child: _SegButton(
+                        label: 'sec',
+                        selected: _durationUnit == 'sec',
+                        dark: dark,
+                        onTap: () => setState(() => _durationUnit = 'sec'),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
                     Expanded(
-                        child: _toggleChip('min', _durationUnit == 'min',
-                            () => setState(() => _durationUnit = 'min'))),
+                      child: _SegButton(
+                        label: 'min',
+                        selected: _durationUnit == 'min',
+                        dark: dark,
+                        onTap: () => setState(() => _durationUnit = 'min'),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -731,53 +1304,44 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
           Row(
             children: [
               Expanded(
-                child: TextField(
+                child: _DialogField(
+                  label: 'Sets',
                   controller: _setsController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Sets', hintText: 'e.g. 3'),
+                  dark: dark,
+                  hint: 'e.g. 3',
+                  numeric: true,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
-                child: TextField(
+                child: _DialogField(
+                  label: 'Reps',
                   controller: _repsController,
-                  decoration: const InputDecoration(labelText: 'Reps', hintText: 'e.g. 10, or Max'),
+                  dark: dark,
+                  hint: 'e.g. 10 or Max',
                 ),
               ),
             ],
           ),
-        const SizedBox(height: 20),
+        const SizedBox(height: AppSpacing.lg),
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: _createAndReturn,
-            child: const Text('Add to day'),
+            style: FilledButton.styleFrom(
+              backgroundColor: dark ? AppColors.darkDeep : AppColors.deep,
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(AppRadius.md)),
+            ),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              _createAndReturn();
+            },
+            child: const Text('Add to day',
+                style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ),
       ],
-    );
-  }
-
-  Widget _toggleChip(String label, bool selected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.deep : AppColors.cardSurface,
-          border: Border.all(color: selected ? AppColors.deep : AppColors.mist),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-            color: selected ? AppColors.canvas : AppColors.deepLight,
-          ),
-        ),
-      ),
     );
   }
 }

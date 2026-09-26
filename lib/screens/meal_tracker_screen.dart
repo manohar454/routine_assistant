@@ -39,84 +39,140 @@ class _MealTrackerScreenState extends State<MealTrackerScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-          decoration: const BoxDecoration(
-            color: AppColors.cardSurface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.mist,
-                    borderRadius: BorderRadius.circular(4),
+      builder: (ctx) {
+        final dark = ctx.isDark;
+        return Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(
+              20, AppSpacing.sm,
+              20, AppSpacing.xl,
+            ),
+            decoration: BoxDecoration(
+              color: dark ? AppColors.darkSurface : Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: AppRadius.xl,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: dark ? AppColors.darkBorder : AppColors.mist,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Log ${_mealLabel(type)}',
-                style: const TextStyle(
-                  fontFamily: 'Fraunces',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.ink,
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Log ${_mealLabel(type)}',
+                  style: ctx.text.titleLarge?.copyWith(
+                    color: dark ? AppColors.darkInk : AppColors.ink,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'What did you eat?',
-                  hintText: 'e.g. oats with banana, protein shake',
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: descController,
+                  autofocus: true,
+                  style: ctx.text.bodyLarge?.copyWith(
+                    color: dark ? AppColors.darkInk : AppColors.ink,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'What did you eat?',
+                    hintStyle: ctx.text.bodyLarge?.copyWith(
+                      color: (dark
+                              ? AppColors.darkInkSubtle
+                              : AppColors.inkSubtle)
+                          .withValues(alpha: 0.5),
+                    ),
+                    filled: true,
+                    fillColor: dark ? AppColors.darkCard : AppColors.cardSurface,
+                    border: const OutlineInputBorder(
+                      borderRadius: BorderRadius.all(AppRadius.md),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md, vertical: AppSpacing.sm + 4,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: notesController,
-                decoration: const InputDecoration(
-                  labelText: 'Notes (optional)',
-                  hintText: 'e.g. soaked chia seeds, extra protein',
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  controller: notesController,
+                  style: ctx.text.bodyMedium?.copyWith(
+                    color: dark ? AppColors.darkInk : AppColors.ink,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Notes (optional)',
+                    hintStyle: ctx.text.bodyMedium?.copyWith(
+                      color: (dark
+                              ? AppColors.darkInkSubtle
+                              : AppColors.inkSubtle)
+                          .withValues(alpha: 0.5),
+                    ),
+                    filled: true,
+                    fillColor: dark ? AppColors.darkCard : AppColors.cardSurface,
+                    border: const OutlineInputBorder(
+                      borderRadius: BorderRadius.all(AppRadius.md),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md, vertical: AppSpacing.sm + 4,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Save'),
+                const SizedBox(height: AppSpacing.md),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          dark ? AppColors.darkAmber : AppColors.amber,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(AppRadius.md),
+                      ),
+                    ),
+                    child: Text(
+                      'Save',
+                      style: ctx.text.labelLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
 
-    if (confirmed != true || !mounted) return;
-    if (descController.text.trim().isEmpty) return;
+    if (confirmed != true) return;
+    final desc = descController.text.trim();
+    if (desc.isEmpty) return;
 
     final log = MealLog(
       id: const Uuid().v4(),
       mealType: type,
-      description: descController.text.trim(),
+      description: desc,
+      notes: notesController.text.trim().isNotEmpty
+          ? notesController.text.trim()
+          : null,
       timestamp: DateTime.now(),
-      notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
     );
-
     await db.insertMealLog(log);
     if (!mounted) return;
-    setState(() => _todayLogs = [..._todayLogs, log]
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp)));
+    setState(() => _todayLogs = [log, ..._todayLogs]);
   }
 
   Future<void> _deleteLog(MealLog log) async {
@@ -125,161 +181,228 @@ class _MealTrackerScreenState extends State<MealTrackerScreen> {
     setState(() => _todayLogs.remove(log));
   }
 
-  String _mealLabel(MealType type) {
-    switch (type) {
-      case MealType.breakfast: return 'Breakfast';
-      case MealType.lunch: return 'Lunch';
-      case MealType.dinner: return 'Dinner';
-      case MealType.snack: return 'Snack';
-    }
-  }
+  String _mealLabel(MealType type) => switch (type) {
+        MealType.breakfast => 'Breakfast',
+        MealType.lunch => 'Lunch',
+        MealType.dinner => 'Dinner',
+        MealType.snack => 'Snack',
+      };
 
-  IconData _mealIcon(MealType type) {
-    switch (type) {
-      case MealType.breakfast: return Icons.wb_sunny_outlined;
-      case MealType.lunch: return Icons.wb_cloudy_outlined;
-      case MealType.dinner: return Icons.bedtime_outlined;
-      case MealType.snack: return Icons.apple;
-    }
-  }
+  IconData _mealIcon(MealType type) => switch (type) {
+        MealType.breakfast => Icons.wb_sunny_rounded,
+        MealType.lunch => Icons.lunch_dining_rounded,
+        MealType.dinner => Icons.dinner_dining_rounded,
+        MealType.snack => Icons.cookie_rounded,
+      };
 
   String _formatTime(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Build a view that shows all four meal slots in order, showing what
-    // was logged (or a quiet "not yet logged" state) — so you get a clear
-    // picture of the whole day at once, not just a flat list of entries.
-    final orderedTypes = [
-      MealType.breakfast,
-      MealType.lunch,
-      MealType.dinner,
-      MealType.snack,
-    ];
+    final dark = context.isDark;
 
     return Scaffold(
+      backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
       appBar: AppBar(
-        leading: const BackButton(),
-        title: const Text('Meals'),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-          children: [
-            Text('TODAY', style: textTheme.labelSmall),
-            const SizedBox(height: 12),
-
-            for (final type in orderedTypes) ...[
-              _mealSection(type, textTheme),
-              const SizedBox(height: 16),
-            ],
-          ],
+        backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: dark ? AppColors.darkInk : AppColors.ink),
+          onPressed: () => Navigator.of(context).pop(),
         ),
+        title: Text(
+          'Meals',
+          style: context.text.titleLarge?.copyWith(
+            color: dark ? AppColors.darkInk : AppColors.ink,
+          ),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          20, AppSpacing.md,
+          20, 60,
+        ),
+        children: MealType.values.map((type) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+            child: _MealSection(
+              type: type,
+              logs: _todayLogs.where((l) => l.mealType == type).toList(),
+              dark: dark,
+              onText: context.text,
+              mealLabel: _mealLabel,
+              mealIcon: _mealIcon,
+              formatTime: _formatTime,
+              onLog: () => _logMeal(type),
+              onDelete: _deleteLog,
+            ),
+          );
+        }).toList(),
       ),
     );
   }
+}
 
-  Widget _mealSection(MealType type, TextTheme textTheme) {
-    final logs = _todayLogs.where((l) => l.mealType == type).toList();
+// ─── Meal section ─────────────────────────────────────────────────────────────
+
+class _MealSection extends StatelessWidget {
+  final MealType type;
+  final List<MealLog> logs;
+  final bool dark;
+  final TextTheme onText;
+  final String Function(MealType) mealLabel;
+  final IconData Function(MealType) mealIcon;
+  final String Function(DateTime) formatTime;
+  final VoidCallback onLog;
+  final Future<void> Function(MealLog) onDelete;
+
+  const _MealSection({
+    required this.type,
+    required this.logs,
+    required this.dark,
+    required this.onText,
+    required this.mealLabel,
+    required this.mealIcon,
+    required this.formatTime,
+    required this.onLog,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final hasLogs = logs.isNotEmpty;
+    final accent = dark ? AppColors.darkAmber : AppColors.amber;
+    final subtle = dark ? AppColors.darkInkSubtle : AppColors.inkSubtle;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Section header
         Row(
           children: [
-            Icon(_mealIcon(type),
-                size: 16,
-                color: hasLogs ? AppColors.moss : AppColors.deepLight),
+            Icon(
+              mealIcon(type),
+              size: 16,
+              color: hasLogs ? accent : subtle,
+            ),
             const SizedBox(width: 6),
             Text(
-              _mealLabel(type).toUpperCase(),
-              style: textTheme.labelSmall?.copyWith(
-                color: hasLogs ? AppColors.moss : null,
+              mealLabel(type).toUpperCase(),
+              style: onText.labelSmall?.copyWith(
+                color: hasLogs ? accent : subtle,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
               ),
             ),
             const Spacer(),
             GestureDetector(
-              onTap: () => _logMeal(type),
+              onTap: onLog,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm + 4, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.cardSurface,
-                  border: Border.all(color: AppColors.mist),
-                  borderRadius: BorderRadius.circular(20),
+                  color: dark ? AppColors.darkCard : AppColors.cardSurface,
+                  borderRadius: const BorderRadius.all(AppRadius.pill),
+                  border: Border.all(
+                    color: dark ? AppColors.darkBorder : AppColors.mist,
+                  ),
                 ),
                 child: Text(
                   hasLogs ? '+ Add another' : '+ Log',
-                  style: const TextStyle(
-                    fontSize: 12,
+                  style: onText.labelSmall?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: AppColors.deep,
+                    color: dark ? AppColors.darkDeep : AppColors.deep,
                   ),
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.sm),
 
         if (!hasLogs)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: AppSpacing.md,
+            ),
             decoration: BoxDecoration(
-              color: AppColors.cardSurface,
-              border: Border.all(color: AppColors.mist),
-              borderRadius: BorderRadius.circular(14),
+              color: dark ? AppColors.darkCard : AppColors.cardSurface,
+              borderRadius: const BorderRadius.all(AppRadius.md),
+              border: Border.all(
+                color: dark ? AppColors.darkBorder : AppColors.mist,
+              ),
             ),
             child: Text(
               'Not logged yet',
-              style: textTheme.bodyMedium,
+              style: onText.bodyMedium?.copyWith(
+                color: subtle.withValues(alpha: 0.6),
+              ),
             ),
           )
         else
-          for (final log in logs)
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppColors.cardSurface,
-                border: Border.all(color: AppColors.mist),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(log.description,
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
-                        if (log.notes != null) ...[
-                          const SizedBox(height: 2),
-                          Text(log.notes!,
-                              style: textTheme.bodyMedium?.copyWith(fontSize: 12)),
+          ...logs.map(
+            (log) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: dark ? AppColors.darkCard : AppColors.cardSurface,
+                  borderRadius: const BorderRadius.all(AppRadius.md),
+                  border: Border.all(
+                    color: dark ? AppColors.darkBorder : AppColors.mist,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            log.description,
+                            style: onText.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: dark ? AppColors.darkInk : AppColors.ink,
+                            ),
+                          ),
+                          if (log.notes != null && log.notes!.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              log.notes!,
+                              style: onText.bodySmall?.copyWith(
+                                color: subtle,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 4),
+                          Text(
+                            formatTime(log.timestamp),
+                            style: onText.labelSmall?.copyWith(color: subtle),
+                          ),
                         ],
-                        const SizedBox(height: 4),
-                        Text(_formatTime(log.timestamp),
-                            style: textTheme.bodyMedium?.copyWith(fontSize: 11)),
-                      ],
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 16, color: AppColors.clay),
-                    onPressed: () => _deleteLog(log),
-                  ),
-                ],
+                    GestureDetector(
+                      onTap: () => onDelete(log),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: AppSpacing.sm),
+                        child: Icon(Icons.close_rounded,
+                            size: 16, color: subtle),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+          ),
       ],
     );
   }

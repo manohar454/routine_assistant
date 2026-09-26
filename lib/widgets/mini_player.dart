@@ -17,24 +17,46 @@ class MiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = context.isDark;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + 2,
+      ),
       decoration: BoxDecoration(
-        color: AppColors.deep,
-        borderRadius: BorderRadius.circular(16),
+        color: dark ? AppColors.darkDeep : AppColors.deep,
+        borderRadius: const BorderRadius.all(AppRadius.lg),
+        boxShadow: [
+          BoxShadow(
+            color: (dark ? AppColors.darkDeep : AppColors.deep)
+                .withValues(alpha: 0.35),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
+          // Album art / icon
           Container(
-            width: 38,
-            height: 38,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: AppColors.amber,
-              borderRadius: BorderRadius.circular(10),
+              color: dark
+                  ? AppColors.darkAmber.withValues(alpha: 0.25)
+                  : AppColors.amber.withValues(alpha: 0.25),
+              borderRadius: const BorderRadius.all(AppRadius.sm),
             ),
-            child: const Icon(Icons.music_note, color: Colors.white, size: 18),
+            child: Icon(
+              Icons.music_note_rounded,
+              color: dark ? AppColors.darkAmber : AppColors.amber,
+              size: 20,
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.sm + 4),
+
+          // Track info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -42,10 +64,9 @@ class MiniPlayer extends StatelessWidget {
               children: [
                 Text(
                   trackTitle,
-                  style: const TextStyle(
-                    color: AppColors.canvas,
+                  style: context.text.labelLarge?.copyWith(
+                    color: Colors.white,
                     fontWeight: FontWeight.w700,
-                    fontSize: 13,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -53,18 +74,31 @@ class MiniPlayer extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: const TextStyle(color: Color(0xFFA9BCC4), fontSize: 11),
+                  style: context.text.labelSmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.55),
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: onTogglePlay,
-            icon: Icon(
-              isPlaying ? Icons.pause : Icons.play_arrow,
-              color: AppColors.canvas,
+
+          // Play / Pause
+          GestureDetector(
+            onTap: onTogglePlay,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
           ),
         ],

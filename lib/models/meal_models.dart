@@ -2,6 +2,7 @@
 /// what you ate and when, per meal type. No calorie/macro counting (that
 /// was never actually requested — the original ask was meal timing and
 /// basic completion, not a full nutrition-calculation system).
+
 library;
 
 enum MealType { breakfast, lunch, dinner, snack }
@@ -31,7 +32,10 @@ class MealLog {
 
   factory MealLog.fromMap(Map<String, dynamic> map) => MealLog(
         id: map['id'] as String,
-        mealType: MealType.values.firstWhere((t) => t.name == map['mealType']),
+        mealType: MealType.values.firstWhere(
+          (t) => t.name == map['mealType'],
+          orElse: () => MealType.snack,
+        ),
         description: map['description'] as String,
         timestamp: DateTime.parse(map['timestamp'] as String),
         notes: map['notes'] as String?,

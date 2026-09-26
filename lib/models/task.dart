@@ -1,4 +1,5 @@
 /// Core Task model — Phase 1 minimum core, plus moodTag for the music module.
+
 library;
 
 enum TaskFlexibility { fixed, flexible }
@@ -7,15 +8,25 @@ enum TaskStatus { pending, inProgress, completed, skipped }
 
 class Task {
   final String id;
+
   String name;
+
   String category;
+
   DateTime plannedStart;
+
   int estimatedDurationMinutes;
+
   DateTime? actualStart;
+
   DateTime? actualEnd;
+
   TaskStatus status;
+
   TaskFlexibility flexibility;
+
   String? voiceMessage;
+
   String? moodTag;
 
   Task({
@@ -64,9 +75,14 @@ class Task {
       actualEnd: map['actualEnd'] != null
           ? DateTime.parse(map['actualEnd'] as String)
           : null,
-      status: TaskStatus.values.firstWhere((s) => s.name == map['status']),
-      flexibility: TaskFlexibility.values
-          .firstWhere((f) => f.name == map['flexibility']),
+      status: TaskStatus.values.firstWhere(
+        (s) => s.name == map['status'],
+        orElse: () => TaskStatus.pending,
+      ),
+      flexibility: TaskFlexibility.values.firstWhere(
+        (f) => f.name == map['flexibility'],
+        orElse: () => TaskFlexibility.flexible,
+      ),
       voiceMessage: map['voiceMessage'] as String?,
       moodTag: map['moodTag'] as String?,
     );

@@ -10,6 +10,7 @@ import '../models/meal_models.dart';
 import '../models/behavior_profile.dart';
 import '../models/preference_learning_models.dart';
 import '../models/day_clustering_models.dart';
+import '../models/goal_models.dart';
 
 class DatabaseHelper {
   DatabaseHelper._internal();
@@ -27,7 +28,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), 'routine_assistant.db');
     return openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -64,6 +65,7 @@ class DatabaseHelper {
         ''');
         await _createWorkoutTables(db);
         await _createAppSettingsTables(db);
+        await _createGoalTables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -213,6 +215,9 @@ class DatabaseHelper {
             )
           ''');
         }
+        if (oldVersion < 12) {
+          await _createGoalTables(db);
+        }
       },
     );
   }
@@ -277,6 +282,40 @@ class DatabaseHelper {
         timestamp TEXT NOT NULL
       )
     ''');
+  }
+
+  Future<void> _createGoalTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS goal_plans (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        status TEXT NOT NULL,
+        outcomeDescription TEXT NOT NULL,
+        targetValue REAL NOT NULL,
+        unit TEXT NOT NULL,
+        baselineValue REAL NOT NULL,
+        startDate TEXT NOT NULL,
+        targetDate TEXT NOT NULL,
+        linkedExerciseId TEXT,
+        linkedCategory TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS weekly_milestones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goalPlanId TEXT NOT NULL,
+        weekNumber INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        targetValue REAL NOT NULL,
+        unit TEXT NOT NULL,
+        isCheckpoint INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (goalPlanId) REFERENCES goal_plans(id)
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_milestones_plan '
+        'ON weekly_milestones (goalPlanId)');
   }
 
   Future<void> _createAppSettingsTables(Database db) async {
@@ -519,7 +558,11 @@ class DatabaseHelper {
     final all = maps.map((m) => Exercise.fromMap(m)).toList();
     // Preserve the template's exercise ORDER, not the DB's arbitrary order.
     return ids
-        .map((id) => all.firstWhere((e) => e.id == id))
+        .map((id) {
+  final matches = all.where((e) => e.id == id);
+  return matches.isNotEmpty ? matches.first : null;
+})
+.whereType<Exercise>()
         .toList();
   }
 
@@ -969,6 +1012,82 @@ class DatabaseHelper {
       limit: 1,
     );
     return maps.isEmpty ? null : maps.first;
+  }
+
+  // ---------------- Goal plans (Phase 3) ----------------
+
+  Future<void> insertGoalPlan(GoalPlan plan) async {
+    final db = await database;
+    await db.insert('goal_plans', plan.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    // Re-insert milestones: delete existing first, then bulk-insert.
+    await db.delete('weekly_milestones',
+        where: 'goalPlanId = ?', whereArgs: [plan.id]);
+    for (final m in plan.milestones) {
+      await db.insert('weekly_milestones', {
+        ...m.toMap(),
+        'goalPlanId': plan.id,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
+
+  Future<GoalPlan?> getGoalPlan(String id) async {
+    final db = await database;
+    final maps =
+        await db.query('goal_plans', where: 'id = ?', whereArgs: [id]);
+    if (maps.isEmpty) return null;
+    final milestones = await _getMilestones(db, id);
+    return GoalPlan.fromMap(maps.first, milestones: milestones);
+  }
+
+  Future<List<GoalPlan>> getActiveGoalPlans() async {
+    final db = await database;
+    final maps = await db.query('goal_plans',
+        where: 'status = ?',
+        whereArgs: [GoalStatus.active.name],
+        orderBy: 'targetDate ASC');
+    final plans = <GoalPlan>[];
+    for (final m in maps) {
+      final id = m['id'] as String;
+      final milestones = await _getMilestones(db, id);
+      plans.add(GoalPlan.fromMap(m, milestones: milestones));
+    }
+    return plans;
+  }
+
+  Future<List<GoalPlan>> getAllGoalPlans() async {
+    final db = await database;
+    final maps =
+        await db.query('goal_plans', orderBy: 'targetDate ASC');
+    final plans = <GoalPlan>[];
+    for (final m in maps) {
+      final id = m['id'] as String;
+      final milestones = await _getMilestones(db, id);
+      plans.add(GoalPlan.fromMap(m, milestones: milestones));
+    }
+    return plans;
+  }
+
+  Future<void> updateGoalPlanStatus(String id, GoalStatus status) async {
+    final db = await database;
+    await db.update('goal_plans', {'status': status.name},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteGoalPlan(String id) async {
+    final db = await database;
+    await db.delete('weekly_milestones',
+        where: 'goalPlanId = ?', whereArgs: [id]);
+    await db.delete('goal_plans', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<WeeklyMilestone>> _getMilestones(
+      Database db, String goalPlanId) async {
+    final maps = await db.query('weekly_milestones',
+        where: 'goalPlanId = ?',
+        whereArgs: [goalPlanId],
+        orderBy: 'weekNumber ASC');
+    return maps.map((m) => WeeklyMilestone.fromMap(m)).toList();
   }
 
 }

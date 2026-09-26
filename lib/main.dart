@@ -18,6 +18,8 @@ class RoutineAssistantApp extends StatelessWidget {
       title: 'Routine Assistant',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system, // follows device dark/light setting
       home: const HomeScreen(),
     );
   }
