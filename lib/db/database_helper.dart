@@ -29,7 +29,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), 'routine_assistant.db');
     return openDatabase(
       path,
-      version: 13,
+      version: 14,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -68,10 +68,14 @@ class DatabaseHelper {
         await _createAppSettingsTables(db);
         await _createGoalTables(db);
         await _createRoutineTable(db);
+        await _createRoutineLogsTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 13) {
           await _createRoutineTable(db);
+        }
+        if (oldVersion < 14) {
+          await _createRoutineLogsTable(db);
         }
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE tasks ADD COLUMN moodTag TEXT');
@@ -285,6 +289,24 @@ class DatabaseHelper {
         weight REAL NOT NULL,
         rpe INTEGER,
         timestamp TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createRoutineLogsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS routine_logs (
+        id TEXT PRIMARY KEY,
+        entryId TEXT NOT NULL,
+        entryType TEXT NOT NULL,
+        scheduledMinutes INTEGER NOT NULL,
+        confirmedAt TEXT,
+        rescheduledTo INTEGER,
+        skipped INTEGER NOT NULL DEFAULT 0,
+        waterMlLogged INTEGER,
+        foodItems TEXT,
+        notes TEXT,
+        date TEXT NOT NULL
       )
     ''');
   }
@@ -1166,6 +1188,48 @@ class DatabaseHelper {
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
     });
+  }
+
+  // ─── Routine Logs (confirmation + food/water logging) ────────────────────
+
+  Future<void> upsertRoutineLog(Map<String, dynamic> log) async {
+    final db = await database;
+    await db.insert('routine_logs', log,
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Get log for a specific entry on a given date (yyyy-MM-dd).
+  Future<Map<String, dynamic>?> getRoutineLog(
+      String entryId, String date) async {
+    final db = await database;
+    final rows = await db.query('routine_logs',
+        where: 'entryId = ? AND date = ?', whereArgs: [entryId, date]);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Get all logs for today.
+  Future<List<Map<String, dynamic>>> getTodayRoutineLogs() async {
+    final db = await database;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    return db.query('routine_logs',
+        where: 'date = ?', whereArgs: [today], orderBy: 'scheduledMinutes ASC');
+  }
+
+  /// Get logs for a date range (for summary widgets).
+  Future<List<Map<String, dynamic>>> getRoutineLogsForDate(
+      String date) async {
+    final db = await database;
+    return db.query('routine_logs',
+        where: 'date = ?', whereArgs: [date], orderBy: 'scheduledMinutes ASC');
+  }
+
+  /// Get unconfirmed (missed) entries for today that have not been skipped.
+  Future<List<Map<String, dynamic>>> getMissedRoutineLogs() async {
+    final db = await database;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    return db.query('routine_logs',
+        where: 'date = ? AND confirmedAt IS NULL AND skipped = 0',
+        whereArgs: [today]);
   }
 
 }

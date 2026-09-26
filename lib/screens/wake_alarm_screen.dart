@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import '../db/database_helper.dart';
 import '../models/routine_models.dart';
 import '../services/tts_service.dart';
+import '../services/routine_confirmation_service.dart';
 import '../theme/app_theme.dart';
 
 /// Hard-to-dismiss morning wake-up screen.
@@ -45,9 +47,16 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
   // ── TTS ──
   bool _ttsSpoken = false;
 
+  // ── Escalating intensity ──
+  int _escalationLevel = 0; // 0=soft, 1=medium, 2=intense, 3=critical
+  Timer? _escalationTimer;
+  bool _vibrating = false;
+
   // ── Animation ──
   late AnimationController _pulseCtrl;
+  late AnimationController _shakeCtrl;
   late Animation<double> _pulse;
+  late Animation<double> _shake;
 
   // ── Time display ──
   late Timer _clockTimer;
@@ -59,7 +68,7 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
     "Your only limit is the one you set yourself.",
     "Rise up, show up, and never give up.",
     "Success is not given — it is earned before sunrise.",
-    "5:30 AM. While others sleep, champions are made.",
+    "5:45 AM. While others sleep, champions are made.",
     "Wake up with determination. Go to bed with satisfaction.",
     "You didn't come this far to only come this far.",
     "The morning is the foundation of the day — make it count.",
@@ -84,6 +93,12 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
       CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
     );
 
+    _shakeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+    );
+    _shake = Tween<double>(begin: -6, end: 6).animate(_shakeCtrl);
+
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() => _now = DateTime.now());
@@ -94,15 +109,76 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
 
     // Start music after TTS gets going.
     Future.delayed(const Duration(milliseconds: 2000), _startMusic);
+
+    // Begin escalation schedule.
+    _scheduleEscalation();
   }
 
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _shakeCtrl.dispose();
     _clockTimer.cancel();
+    _escalationTimer?.cancel();
     _inputController.dispose();
     _player?.dispose();
     super.dispose();
+  }
+
+  // ── Escalation logic ─────────────────────────────────────────────────────
+
+  void _scheduleEscalation() {
+    // Level 1 after 2 min: medium (louder TTS repeat)
+    Future.delayed(const Duration(minutes: 2), () => _escalate(1));
+    // Level 2 after 5 min: intense (repeated vibration + faster pulse)
+    Future.delayed(const Duration(minutes: 5), () => _escalate(2));
+    // Level 3 after 10 min: critical (shake animation + very loud TTS)
+    Future.delayed(const Duration(minutes: 10), () => _escalate(3));
+  }
+
+  Future<void> _escalate(int level) async {
+    if (!mounted) return;
+    setState(() => _escalationLevel = level);
+
+    switch (level) {
+      case 1:
+        // Medium: re-speak with urgency
+        await TtsService.instance.speak(
+            "Boss! It's time to wake up. Don't snooze — your day is waiting!");
+        HapticFeedback.mediumImpact();
+        break;
+      case 2:
+        // Intense: vibration every 30 seconds + fast pulse
+        _pulseCtrl.duration = const Duration(milliseconds: 600);
+        _startRepeatedVibration();
+        await TtsService.instance.speak(
+            "Wake up! Wake up! You have to get up NOW, boss! "
+            "Solve the problem and start your day!");
+        break;
+      case 3:
+        // Critical: shake screen + very loud repeated TTS
+        _shakeCtrl.repeat(reverse: true);
+        await TtsService.instance.speak(
+            "BOSS! CRITICAL WAKE UP! You are missing your morning routine! "
+            "Get up immediately and solve the problem!");
+        break;
+    }
+  }
+
+  void _startRepeatedVibration() {
+    if (_vibrating) return;
+    _vibrating = true;
+    _escalationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) {
+        _escalationTimer?.cancel();
+        return;
+      }
+      HapticFeedback.heavyImpact();
+      Future.delayed(const Duration(milliseconds: 200),
+          () => HapticFeedback.heavyImpact());
+      Future.delayed(const Duration(milliseconds: 400),
+          () => HapticFeedback.heavyImpact());
+    });
   }
 
   void _generateProblem() {
@@ -153,8 +229,14 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
   }
 
   void _dismiss() {
+    _escalationTimer?.cancel();
+    _shakeCtrl.stop();
     _player?.stop();
     TtsService.instance.stop();
+    // Confirm the wake-up entry
+    if (widget.entry != null) {
+      RoutineConfirmationService.instance.confirmEntry(widget.entry!);
+    }
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -213,10 +295,34 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
 
   // ── Build ──────────────────────────────────────────────────────────────────
 
+  Color get _bgColor {
+    switch (_escalationLevel) {
+      case 1: return const Color(0xFF1A2A10);
+      case 2: return const Color(0xFF2A1A08);
+      case 3: return const Color(0xFF2A0808);
+      default: return const Color(0xFF0A1512);
+    }
+  }
+
+  Color get _accentColor {
+    switch (_escalationLevel) {
+      case 2: return const Color(0xFFFF8C00);
+      case 3: return const Color(0xFFFF2020);
+      default: return const Color(0xFF80CBC4);
+    }
+  }
+
+  String get _escalationLabel {
+    switch (_escalationLevel) {
+      case 1: return '⚠️ Wake up, boss!';
+      case 2: return '🚨 GET UP NOW!';
+      case 3: return '🆘 CRITICAL ALARM';
+      default: return '';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-
     final h = _now.hour.toString().padLeft(2, '0');
     final m = _now.minute.toString().padLeft(2, '0');
     final s = _now.second.toString().padLeft(2, '0');
@@ -225,10 +331,37 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
       // Prevent back-button dismissal — must solve the problem.
       canPop: false,
       child: Scaffold(
-        backgroundColor: dark ? const Color(0xFF0A1512) : const Color(0xFF1A2E25),
-        body: SafeArea(
+        backgroundColor: _bgColor,
+        body: AnimatedBuilder(
+          animation: _shakeCtrl,
+          builder: (context, child) => Transform.translate(
+            offset: _escalationLevel >= 3
+                ? Offset(_shake.value, 0)
+                : Offset.zero,
+            child: child,
+          ),
+          child: SafeArea(
           child: Column(
             children: [
+              // ── Escalation banner ──
+              if (_escalationLevel > 0)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 400),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  color: _accentColor.withValues(alpha: 0.25),
+                  child: Text(
+                    _escalationLabel,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _accentColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ),
+
               // ── Header: time + motivational quote ──
               Expanded(
                 flex: 3,
@@ -463,6 +596,7 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
               ),
             ],
           ),
+        ),
         ),
       ),
     );

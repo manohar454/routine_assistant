@@ -5,6 +5,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../db/database_helper.dart';
 import '../models/routine_models.dart';
 import 'tts_service.dart';
+import 'routine_confirmation_service.dart';
 
 /// AI Voice Companion — schedules and orchestrates all daily routine reminders.
 ///
@@ -40,6 +41,23 @@ class RoutineAlarmService {
     await _cancelAllRoutineNotifications();
     for (int i = 0; i < entries.length; i++) {
       await _schedule(entries[i], notifId: _baseId + i);
+    }
+    // Register confirmation follow-up tracking for entries that fire today
+    final now = DateTime.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    for (final entry in entries) {
+      // Only arm the follow-up for entries that haven't fired yet
+      if (entry.timeOfDayMinutes > nowMinutes) {
+        final fireAt = DateTime(
+          now.year, now.month, now.day,
+          entry.timeOfDayMinutes ~/ 60,
+          entry.timeOfDayMinutes % 60,
+        );
+        final delay = fireAt.difference(now);
+        Future.delayed(delay, () {
+          RoutineConfirmationService.instance.onReminderFired(entry);
+        });
+      }
     }
   }
 

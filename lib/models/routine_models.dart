@@ -6,16 +6,20 @@ import 'package:flutter/material.dart' show TimeOfDay;
 // ---------------------------------------------------------------------------
 
 enum RoutineEntryType {
-  wakeUp,          // 5:30 AM alarm + motivational music
-  morningWater,    // water after wake
+  wakeUp,          // 5:45 AM alarm + motivational music
+  morningWater,    // soaked water / morning water
   workout,         // morning workout block
   postWorkoutWater,
-  breakfast,
+  breakfast,       // mess breakfast
   waterReminder,   // periodic water throughout the day
-  lunch,
-  gym,             // evening gym session
+  study,           // study session reminder
+  college,         // go to college
+  lunch,           // mess lunch
+  nap,             // afternoon nap
+  snacks,          // post-college snacks
+  gym,             // evening gym / physical activity
   postGymProtein,  // protein meal / cook reminder
-  dinner,
+  dinner,          // mess dinner
   bedtimePrep,     // soak grains/chia/sabja seeds
   custom,          // user-created entry
 }
@@ -29,8 +33,12 @@ extension RoutineEntryTypeExt on RoutineEntryType {
       case RoutineEntryType.postWorkoutWater: return 'Post-Workout Water';
       case RoutineEntryType.breakfast:        return 'Breakfast';
       case RoutineEntryType.waterReminder:    return 'Water Reminder';
+      case RoutineEntryType.study:            return 'Study';
+      case RoutineEntryType.college:          return 'College';
       case RoutineEntryType.lunch:            return 'Lunch';
-      case RoutineEntryType.gym:              return 'Gym Session';
+      case RoutineEntryType.nap:              return 'Nap';
+      case RoutineEntryType.snacks:           return 'Snacks';
+      case RoutineEntryType.gym:              return 'Gym / Activity';
       case RoutineEntryType.postGymProtein:   return 'Post-Gym Protein';
       case RoutineEntryType.dinner:           return 'Dinner';
       case RoutineEntryType.bedtimePrep:      return 'Bedtime Prep';
@@ -46,7 +54,11 @@ extension RoutineEntryTypeExt on RoutineEntryType {
       case RoutineEntryType.postWorkoutWater: return '💧';
       case RoutineEntryType.breakfast:        return '🍳';
       case RoutineEntryType.waterReminder:    return '🥤';
+      case RoutineEntryType.study:            return '📚';
+      case RoutineEntryType.college:          return '🎓';
       case RoutineEntryType.lunch:            return '🍱';
+      case RoutineEntryType.nap:              return '😴';
+      case RoutineEntryType.snacks:           return '🍌';
       case RoutineEntryType.gym:              return '🏃';
       case RoutineEntryType.postGymProtein:   return '🥗';
       case RoutineEntryType.dinner:           return '🍽️';
@@ -54,6 +66,26 @@ extension RoutineEntryTypeExt on RoutineEntryType {
       case RoutineEntryType.custom:           return '⭐';
     }
   }
+
+  /// Whether this type is a food/mess entry (requires food log confirmation).
+  bool get isMeal =>
+      this == RoutineEntryType.breakfast ||
+      this == RoutineEntryType.lunch ||
+      this == RoutineEntryType.dinner ||
+      this == RoutineEntryType.snacks;
+
+  /// Whether this type tracks water ml.
+  bool get isWater =>
+      this == RoutineEntryType.morningWater ||
+      this == RoutineEntryType.waterReminder ||
+      this == RoutineEntryType.postWorkoutWater;
+
+  /// Whether this is a timed block (nap, study, workout, gym).
+  bool get isDuration =>
+      this == RoutineEntryType.nap ||
+      this == RoutineEntryType.study ||
+      this == RoutineEntryType.workout ||
+      this == RoutineEntryType.gym;
 
   String defaultMessage({int? waterMl, int? durationMinutes}) {
     switch (this) {
@@ -75,6 +107,16 @@ extension RoutineEntryTypeExt on RoutineEntryType {
       case RoutineEntryType.waterReminder:
         return "Time for your water top-up! Drink ${waterMl ?? 400} ml to "
             "stay hydrated and keep your energy up.";
+      case RoutineEntryType.study:
+        return "Boss, study time! ${durationMinutes != null ? 'You have $durationMinutes minutes — ' : ''}"
+            "Focus up, close distractions, and get into deep work mode.";
+      case RoutineEntryType.college:
+        return "Boss, time to head to college! Don't be late — gather your stuff and go.";
+      case RoutineEntryType.nap:
+        return "Short nap time! ${durationMinutes != null ? '$durationMinutes minutes — ' : ''}"
+            "Set your alarm and recharge. Your afternoon self will thank you.";
+      case RoutineEntryType.snacks:
+        return "Snack break! Grab something to eat and refuel before your evening session.";
       case RoutineEntryType.lunch:
         return "Boss, lunch time! Your body needs fuel for the afternoon. "
             "Step away from work and eat a solid meal.";
@@ -229,190 +271,226 @@ class _WaterSlot {
 class DefaultRoutineTimetable {
   DefaultRoutineTimetable._();
 
+  // Water slots mapped to the college day schedule
+  // (5:45 AM wake → study → college → mess → nap → college → snacks → gym → dinner → sleep)
   static const _waterSlots = [
-    _WaterSlot(330,  RoutineEntryType.morningWater,    'Morning Water'),
-    _WaterSlot(575,  RoutineEntryType.waterReminder,   'Water Break'),
-    _WaterSlot(635,  RoutineEntryType.waterReminder,   'Water Break'),
-    _WaterSlot(695,  RoutineEntryType.waterReminder,   'Water Break'),
-    _WaterSlot(755,  RoutineEntryType.waterReminder,   'Lunch Water'),
-    _WaterSlot(815,  RoutineEntryType.waterReminder,   'Afternoon Water'),
-    _WaterSlot(875,  RoutineEntryType.waterReminder,   'Afternoon Water'),
-    _WaterSlot(935,  RoutineEntryType.waterReminder,   'Pre-Gym Water'),
-    _WaterSlot(1025, RoutineEntryType.postWorkoutWater,'Post-Gym Water'),
-    _WaterSlot(1145, RoutineEntryType.waterReminder,   'Evening Water'),
-    _WaterSlot(1205, RoutineEntryType.waterReminder,   'Dinner Water'),
-    _WaterSlot(1265, RoutineEntryType.waterReminder,   'Night Water'),
+    _WaterSlot(345,  RoutineEntryType.morningWater,    'Morning Water'),     // 5:45 AM
+    _WaterSlot(480,  RoutineEntryType.waterReminder,   'Pre-Breakfast Water'),// 8:00 AM
+    _WaterSlot(570,  RoutineEntryType.waterReminder,   'Mid-Morning Water'),  // 9:30 AM
+    _WaterSlot(660,  RoutineEntryType.waterReminder,   'Late Morning Water'), // 11:00 AM
+    _WaterSlot(750,  RoutineEntryType.waterReminder,   'Pre-Lunch Water'),    // 12:30 PM
+    _WaterSlot(840,  RoutineEntryType.waterReminder,   'Afternoon Water'),    // 2:00 PM
+    _WaterSlot(930,  RoutineEntryType.waterReminder,   'Post-Nap Water'),     // 3:30 PM
+    _WaterSlot(1020, RoutineEntryType.waterReminder,   'Pre-Gym Water'),      // 5:00 PM
+    _WaterSlot(1110, RoutineEntryType.postWorkoutWater,'Post-Gym Water'),     // 6:30 PM
+    _WaterSlot(1170, RoutineEntryType.waterReminder,   'Evening Water'),      // 7:30 PM
+    _WaterSlot(1230, RoutineEntryType.waterReminder,   'Dinner Water'),       // 8:30 PM
+    _WaterSlot(1290, RoutineEntryType.waterReminder,   'Night Water'),        // 9:30 PM
   ];
 
-  /// Builds a complete default day schedule.
+  /// Builds a complete default day schedule matching the college routine.
+  ///
+  /// Timeline:
+  ///  5:45 Wake → 6:00 Soaked water → 6:10 Workout (45 min) → 7:00 Post-workout water
+  ///  8:00 Study → 8:30 Breakfast (mess) → 9:30 College →
+  ///  12:30 Mess Lunch → 1:30 Nap (30 min) → 3:00 College (afternoon) →
+  ///  5:00 Snacks → 5:30 Gym/Activity → 6:30 Post-gym protein →
+  ///  8:00 Dinner (mess) → 9:00 Study → 9:30 Bedtime prep → 10:00 Sleep
   static List<RoutineEntry> build({
     int waterGoalMl = 5000,
     int workoutDurationMinutes = 45,
+    int napDurationMinutes = 30,
+    int studyDurationMinutes = 60,
   }) {
     final perSlotMl = (waterGoalMl / _waterSlots.length).round();
     final entries = <RoutineEntry>[];
     int counter = 1;
     String nextId() => 'default_${counter++}';
 
-    // 1. Wake-up 5:30 AM
+    void addWaterSlot(int idx) {
+      final slot = _waterSlots[idx];
+      entries.add(RoutineEntry(
+        id: nextId(),
+        type: slot.type,
+        timeOfDayMinutes: slot.minutesSinceMidnight,
+        label: slot.slotLabel,
+        message: slot.type.defaultMessage(waterMl: perSlotMl),
+        waterMl: perSlotMl,
+      ));
+    }
+
+    // 1. Wake-up 5:45 AM = 345 min
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.wakeUp,
-      timeOfDayMinutes: 330,
+      timeOfDayMinutes: 345,
       label: 'Wake Up',
       message: RoutineEntryType.wakeUp.defaultMessage(),
     ));
 
-    // 2. Morning water
-    entries.add(RoutineEntry(
-      id: nextId(),
-      type: RoutineEntryType.morningWater,
-      timeOfDayMinutes: 330,
-      label: 'Morning Water',
-      message: RoutineEntryType.morningWater.defaultMessage(waterMl: perSlotMl),
-      waterMl: perSlotMl,
-    ));
+    // 2. Soaked water (grains/chia/sabja) 6:00 AM = 360 min
+    addWaterSlot(0); // 5:45 slot — shift to 6:00
+    entries.last = entries.last.copyWith(
+      timeOfDayMinutes: 360,
+      label: 'Soaked Water',
+      message: 'Boss, drink your soaked water — grains, chia, and sabja seeds. '
+          'Your ${perSlotMl}ml morning hydration boost!',
+    );
 
-    // 3. Workout 5:40 AM
+    // 3. Workout 6:10 AM = 370 min
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.workout,
-      timeOfDayMinutes: 340,
+      timeOfDayMinutes: 370,
       label: 'Morning Workout',
       message: RoutineEntryType.workout
           .defaultMessage(durationMinutes: workoutDurationMinutes),
       durationMinutes: workoutDurationMinutes,
     ));
 
-    // 4. Post-workout water
+    // 4. Post-workout water ~7:00 AM
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.postWorkoutWater,
-      timeOfDayMinutes: 340 + workoutDurationMinutes,
+      timeOfDayMinutes: 370 + workoutDurationMinutes,
       label: 'Post-Workout Water',
-      message:
-          RoutineEntryType.postWorkoutWater.defaultMessage(waterMl: perSlotMl),
+      message: RoutineEntryType.postWorkoutWater.defaultMessage(waterMl: perSlotMl),
       waterMl: perSlotMl,
     ));
 
-    // 5. Breakfast 8:30 AM
+    // 5. Study 8:00 AM = 480 min
+    entries.add(RoutineEntry(
+      id: nextId(),
+      type: RoutineEntryType.study,
+      timeOfDayMinutes: 480,
+      label: 'Morning Study',
+      message: RoutineEntryType.study.defaultMessage(durationMinutes: studyDurationMinutes),
+      durationMinutes: studyDurationMinutes,
+    ));
+
+    // 6. Pre-breakfast water 8:00 AM
+    addWaterSlot(1);
+
+    // 7. Breakfast (mess) 8:30 AM = 510 min
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.breakfast,
       timeOfDayMinutes: 510,
-      label: 'Breakfast',
-      message: RoutineEntryType.breakfast.defaultMessage(),
+      label: 'Breakfast (Mess)',
+      message: 'Boss, breakfast time at the mess! Go eat — log what you have.',
     ));
 
-    // 6-8. Pre-lunch water reminders
-    for (int i = 1; i <= 3; i++) {
-      final slot = _waterSlots[i];
-      entries.add(RoutineEntry(
-        id: nextId(),
-        type: slot.type,
-        timeOfDayMinutes: slot.minutesSinceMidnight,
-        label: slot.slotLabel,
-        message: slot.type.defaultMessage(waterMl: perSlotMl),
-        waterMl: perSlotMl,
-      ));
-    }
+    // 8. Mid-morning water
+    addWaterSlot(2); // 9:30 AM
 
-    // 9. Lunch 12:30 PM = 750 min
+    // 9. College 9:30 AM = 570 min
+    entries.add(RoutineEntry(
+      id: nextId(),
+      type: RoutineEntryType.college,
+      timeOfDayMinutes: 570,
+      label: 'Go to College',
+      message: RoutineEntryType.college.defaultMessage(),
+    ));
+
+    // 10. Late morning water
+    addWaterSlot(3); // 11:00 AM
+
+    // 11. Pre-lunch water
+    addWaterSlot(4); // 12:30 PM
+
+    // 12. Lunch (mess) 12:30 PM = 750 min
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.lunch,
       timeOfDayMinutes: 750,
-      label: 'Lunch',
-      message: RoutineEntryType.lunch.defaultMessage(),
+      label: 'Lunch (Mess)',
+      message: 'Boss, lunch at the mess! Take a proper break — log what you eat.',
     ));
 
-    // 10-12. Post-lunch afternoon water
-    for (int i = 4; i <= 6; i++) {
-      final slot = _waterSlots[i];
-      entries.add(RoutineEntry(
-        id: nextId(),
-        type: slot.type,
-        timeOfDayMinutes: slot.minutesSinceMidnight,
-        label: slot.slotLabel,
-        message: slot.type.defaultMessage(waterMl: perSlotMl),
-        waterMl: perSlotMl,
-      ));
-    }
-
-    // 13. Pre-gym water
-    final preGymSlot = _waterSlots[7];
+    // 13. Nap 1:30 PM = 810 min
     entries.add(RoutineEntry(
       id: nextId(),
-      type: preGymSlot.type,
-      timeOfDayMinutes: preGymSlot.minutesSinceMidnight,
-      label: preGymSlot.slotLabel,
-      message: preGymSlot.type.defaultMessage(waterMl: perSlotMl),
-      waterMl: perSlotMl,
+      type: RoutineEntryType.nap,
+      timeOfDayMinutes: 810,
+      label: 'Afternoon Nap',
+      message: RoutineEntryType.nap.defaultMessage(durationMinutes: napDurationMinutes),
+      durationMinutes: napDurationMinutes,
     ));
 
-    // 14. Gym 5:00 PM = 1020 min
+    // 14. Afternoon water (post-nap)
+    addWaterSlot(5); // 2:00 PM
+
+    // 15. College afternoon 3:00 PM = 900 min
+    entries.add(RoutineEntry(
+      id: nextId(),
+      type: RoutineEntryType.college,
+      timeOfDayMinutes: 900,
+      label: 'Afternoon College',
+      message: 'Back to college, boss! Afternoon sessions — stay sharp.',
+    ));
+
+    // 16. Post-nap water
+    addWaterSlot(6); // 3:30 PM
+
+    // 17. Snacks 5:00 PM = 1020 min (after college)
+    entries.add(RoutineEntry(
+      id: nextId(),
+      type: RoutineEntryType.snacks,
+      timeOfDayMinutes: 1020,
+      label: 'Evening Snacks',
+      message: RoutineEntryType.snacks.defaultMessage(),
+    ));
+
+    // 18. Pre-gym water 5:00 PM
+    addWaterSlot(7);
+
+    // 19. Gym / Physical Activity 5:30 PM = 1050 min
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.gym,
-      timeOfDayMinutes: 1020,
-      label: 'Gym Session',
+      timeOfDayMinutes: 1050,
+      label: 'Gym / Activity',
       message: RoutineEntryType.gym.defaultMessage(),
     ));
 
-    // 15. Post-gym water
-    final postGymSlot = _waterSlots[8];
-    entries.add(RoutineEntry(
-      id: nextId(),
-      type: postGymSlot.type,
-      timeOfDayMinutes: postGymSlot.minutesSinceMidnight,
-      label: postGymSlot.slotLabel,
-      message: postGymSlot.type.defaultMessage(waterMl: perSlotMl),
-      waterMl: perSlotMl,
-    ));
+    // 20. Post-gym water 6:30 PM
+    addWaterSlot(8);
 
-    // 16. Post-gym protein ~6:05 PM = 1085 min
+    // 21. Post-gym protein 6:30 PM = 1110 min
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.postGymProtein,
-      timeOfDayMinutes: 1085,
+      timeOfDayMinutes: 1110,
       label: 'Protein Meal',
       message: RoutineEntryType.postGymProtein.defaultMessage(),
     ));
 
-    // 17-18. Evening water
-    for (int i = 9; i <= 10; i++) {
-      final slot = _waterSlots[i];
-      entries.add(RoutineEntry(
-        id: nextId(),
-        type: slot.type,
-        timeOfDayMinutes: slot.minutesSinceMidnight,
-        label: slot.slotLabel,
-        message: slot.type.defaultMessage(waterMl: perSlotMl),
-        waterMl: perSlotMl,
-      ));
-    }
+    // 22. Evening water
+    addWaterSlot(9); // 7:30 PM
 
-    // 19. Dinner 8:00 PM = 1200 min
+    // 23. Dinner (mess) 8:00 PM = 1200 min
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.dinner,
       timeOfDayMinutes: 1200,
-      label: 'Dinner',
-      message: RoutineEntryType.dinner.defaultMessage(),
+      label: 'Dinner (Mess)',
+      message: 'Boss, dinner at the mess! Last proper meal of the day — log what you eat.',
     ));
 
-    // 20. Final night water
-    final nightWater = _waterSlots[11];
+    // 24. Dinner water
+    addWaterSlot(10); // 8:30 PM
+
+    // 25. Night study 9:00 PM = 1260 min
     entries.add(RoutineEntry(
       id: nextId(),
-      type: nightWater.type,
-      timeOfDayMinutes: nightWater.minutesSinceMidnight,
-      label: nightWater.slotLabel,
-      message: nightWater.type.defaultMessage(waterMl: perSlotMl),
-      waterMl: perSlotMl,
+      type: RoutineEntryType.study,
+      timeOfDayMinutes: 1260,
+      label: 'Night Study',
+      message: 'Final study session, boss! Review the day\'s material and prepare for tomorrow.',
+      durationMinutes: studyDurationMinutes,
     ));
 
-    // 21. Bedtime prep 9:30 PM = 1290 min
+    // 26. Bedtime prep 9:30 PM = 1290 min (soak for tomorrow)
     entries.add(RoutineEntry(
       id: nextId(),
       type: RoutineEntryType.bedtimePrep,
@@ -420,6 +498,9 @@ class DefaultRoutineTimetable {
       label: 'Bedtime Prep',
       message: RoutineEntryType.bedtimePrep.defaultMessage(),
     ));
+
+    // 27. Night water
+    addWaterSlot(11); // 9:30 PM
 
     entries.sort((a, b) => a.timeOfDayMinutes.compareTo(b.timeOfDayMinutes));
     return entries;

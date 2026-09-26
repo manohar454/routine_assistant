@@ -27,6 +27,7 @@ import 'daily_report_screen.dart';
 import 'llm_settings_screen.dart';
 import 'reasoning_trace_screen.dart';
 import 'routine_timetable_screen.dart';
+import '../models/routine_models.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -48,6 +49,8 @@ class _HomeScreenState extends State<HomeScreen>
   Duration? _lastNightSleep;
   int _mealsLoggedToday = 0;
   int _activeGoalCount = 0;
+  int _routineConfirmedCount = 0;
+  int _routineTotalCount = 0;
   BurnoutForecast? _burnoutForecast;
   List<TaskImportanceWeight> _newlyLearnedPrefs = [];
   final Set<String> _dismissedPrefCategories = {};
@@ -100,12 +103,19 @@ class _HomeScreenState extends State<HomeScreen>
     final lastNight = await DatabaseHelper.instance.getLastNightSleep();
     final mealLogs = await db.getMealLogsForDay(DateTime.now());
     final goalPlans = await db.getActiveGoalPlans();
+    final routineLogs = await db.getTodayRoutineLogs();
+    final todayEntries = await db.getRoutineEntriesForToday();
     if (!mounted) return;
+    final confirmedCount = routineLogs
+        .where((l) => l['confirmedAt'] != null && l['skipped'] != 1)
+        .length;
     setState(() {
       _todayWaterMl = waterMl;
       _lastNightSleep = lastNight?.duration;
       _mealsLoggedToday = mealLogs.length;
       _activeGoalCount = goalPlans.length;
+      _routineConfirmedCount = confirmedCount;
+      _routineTotalCount = todayEntries.length;
     });
   }
 
@@ -393,6 +403,8 @@ class _HomeScreenState extends State<HomeScreen>
                       sleep: _lastNightSleep,
                       meals: _mealsLoggedToday,
                       activeGoals: _activeGoalCount,
+                      routineConfirmed: _routineConfirmedCount,
+                      routineTotal: _routineTotalCount,
                       isDark: isDark,
                       onWorkout: () => _showPlanPicker(context),
                       onProgress: () => Navigator.push(
@@ -670,6 +682,8 @@ class _QuickActions extends StatelessWidget {
   final Duration? sleep;
   final int meals;
   final int activeGoals;
+  final int routineConfirmed;
+  final int routineTotal;
   final bool isDark;
   final VoidCallback onWorkout;
   final VoidCallback onProgress;
@@ -688,6 +702,8 @@ class _QuickActions extends StatelessWidget {
     required this.sleep,
     required this.meals,
     required this.activeGoals,
+    required this.routineConfirmed,
+    required this.routineTotal,
     required this.isDark,
     required this.onWorkout,
     required this.onProgress,
@@ -770,6 +786,15 @@ class _QuickActions extends StatelessWidget {
           onTap: onRoutine,
         ),
         const SizedBox(height: 12),
+        // Routine day progress
+        if (routineTotal > 0)
+          _RoutineProgressCard(
+            confirmed: routineConfirmed,
+            total: routineTotal,
+            isDark: isDark,
+            onTap: onRoutine,
+          ),
+        if (routineTotal > 0) const SizedBox(height: 12),
         // 3-stat row
         Row(
           children: [
@@ -818,6 +843,123 @@ class _QuickActions extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Routine day progress card
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RoutineProgressCard extends StatelessWidget {
+  final int confirmed;
+  final int total;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _RoutineProgressCard({
+    required this.confirmed,
+    required this.total,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bg = isDark ? AppColors.darkCard : AppColors.cardSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.mist;
+    final ratio = total > 0 ? confirmed / total : 0.0;
+    final missed = total - confirmed;
+
+    Color progressColor;
+    String statusLabel;
+    if (ratio >= 0.85) {
+      progressColor = isDark ? AppColors.darkMoss : AppColors.moss;
+      statusLabel = 'Great day! 🎉';
+    } else if (ratio >= 0.5) {
+      progressColor = isDark ? AppColors.darkAmber : AppColors.amber;
+      statusLabel = missed == 1 ? '1 pending' : '$missed pending';
+    } else {
+      progressColor = isDark ? const Color(0xFFE57373) : const Color(0xFFD32F2F);
+      statusLabel = '$missed not confirmed yet';
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          border: Border.all(color: border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: progressColor.withValues(alpha: 0.12),
+                    borderRadius: const BorderRadius.all(AppRadius.sm),
+                  ),
+                  child: Icon(
+                    Icons.checklist_rounded,
+                    color: progressColor,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Day Routine',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        statusLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: progressColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '$confirmed/$total',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: progressColor,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: const BorderRadius.all(AppRadius.sm),
+              child: LinearProgressIndicator(
+                value: ratio,
+                minHeight: 6,
+                backgroundColor: progressColor.withValues(alpha: 0.15),
+                valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:flutter_timezone/flutter_timezone.dart';
 import '../engine/preference_learning_engine.dart';
 import '../db/database_helper.dart';
+import '../models/routine_models.dart';
 import '../screens/wake_alarm_screen.dart';
 
 /// Global navigator key — allows notification taps to push routes
@@ -34,18 +35,26 @@ void _handleNotificationPayload(String? payload) {
   final entryId = parts[1];
   final typeName = parts[2];
 
-  if (typeName == 'wakeUp') {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final navigator = routineNavigatorKey.currentState;
-      if (navigator == null) return;
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final navigator = routineNavigatorKey.currentState;
+    if (navigator == null) return;
+
+    if (typeName == 'wakeUp') {
       final entry = await DatabaseHelper.instance.getRoutineEntry(entryId);
-      navigator.push(
-        MaterialPageRoute(
-          builder: (_) => WakeAlarmScreen(entry: entry),
-        ),
-      );
-    });
-  }
+      navigator.push(MaterialPageRoute(
+        builder: (_) => WakeAlarmScreen(entry: entry),
+      ));
+    } else if (payload.startsWith('routine:') || payload.startsWith('missed:')) {
+      // Open confirm sheet for any routine reminder tap
+      final entry = await DatabaseHelper.instance.getRoutineEntry(entryId);
+      if (entry != null) {
+        navigator.push(MaterialPageRoute(
+          builder: (_) => RoutineConfirmScreen(entry: entry),
+          fullscreenDialog: true,
+        ));
+      }
+    }
+  });
 }
 
 /// This is the RELIABILITY layer.
@@ -307,5 +316,82 @@ class NotificationService {
   /// Cancels a scheduled notification.
   Future<void> cancel(int notificationId) async {
     await _plugin.cancel(notificationId);
+  }
+
+  // ── Routine Confirmation Notifications ─────────────────────────────────────
+
+  /// Show a "you missed this" notification for an unconfirmed routine entry.
+  Future<void> showMissedRoutineNotification(RoutineEntry entry) async {
+    const androidDetails = AndroidNotificationDetails(
+      'routine_missed',
+      'Missed Routine Reminders',
+      channelDescription: 'Alerts for unconfirmed routine tasks',
+      importance: Importance.high,
+      priority: Priority.high,
+      enableVibration: true,
+      playSound: true,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    final notifId = 4000 + entry.hashCode.abs() % 1000;
+    await _plugin.show(
+      notifId,
+      '${entry.type.emoji} Missed: ${entry.label}',
+      'Tap to confirm, reschedule, or skip.',
+      details,
+      payload: 'missed:${entry.id}:${entry.type.name}',
+    );
+  }
+
+  /// Schedule a one-shot reminder when the user reschedules an entry.
+  Future<void> scheduleRescheduledReminder(
+      RoutineEntry entry, int minutesSinceMidnight) async {
+    final now = DateTime.now();
+    final fireAt = DateTime(
+      now.year, now.month, now.day,
+      minutesSinceMidnight ~/ 60,
+      minutesSinceMidnight % 60,
+    );
+    if (fireAt.isBefore(now)) return;
+
+    final tzTime = tz.TZDateTime.from(fireAt, tz.local);
+    const androidDetails = AndroidNotificationDetails(
+      'routine_rescheduled',
+      'Rescheduled Routine',
+      channelDescription: 'Your rescheduled routine reminders',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    final notifId = 5000 + entry.hashCode.abs() % 1000;
+
+    try {
+      await _plugin.zonedSchedule(
+        notifId,
+        '${entry.type.emoji} ${entry.label} (rescheduled)',
+        entry.message.length > 80
+            ? '${entry.message.substring(0, 80)}…'
+            : entry.message,
+        tzTime,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'routine:${entry.id}:${entry.type.name}',
+      );
+    } on PlatformException {
+      await _plugin.zonedSchedule(
+        notifId,
+        '${entry.type.emoji} ${entry.label} (rescheduled)',
+        entry.message.length > 80
+            ? '${entry.message.substring(0, 80)}…'
+            : entry.message,
+        tzTime,
+        details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'routine:${entry.id}:${entry.type.name}',
+      );
+    }
   }
 }
