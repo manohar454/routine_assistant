@@ -2,7 +2,9 @@ import '../db/database_helper.dart';
 import '../models/task.dart';
 import '../services/notification_service.dart';
 import '../services/music_service.dart';
+import 'dart:async';
 import 'adaptive_learning_engine.dart';
+import 'reasoning_trace_engine.dart';
 
 class RescheduleResult {
   final List<Task> shiftedTasks;
@@ -41,6 +43,17 @@ class RescheduleEngine {
       await _rescheduleNotificationsFor(task);
       shifted.add(task);
     }
+
+    // Record the rescheduling decision for the reasoning trace.
+    unawaited(ReasoningTraceEngine.instance.record(
+      taskName: delayedTask.name,
+      decisionType: 'rescheduled',
+      context: {
+        'delayMinutes': delayMinutes,
+        'tasksShifted': shifted.length,
+        if (conflict != null) 'blockedBy': conflict.name,
+      },
+    ));
 
     return RescheduleResult(
         shiftedTasks: shifted, conflictedFixedTask: conflict);
@@ -86,5 +99,16 @@ class RescheduleEngine {
         actualDurationMinutes: actualDurationMinutes,
       );
     }
+
+    unawaited(ReasoningTraceEngine.instance.record(
+      taskName: task.name,
+      decisionType: 'completed',
+      context: {
+        'category': task.category,
+        if (task.actualStart != null)
+          'durationMinutes':
+              task.actualEnd!.difference(task.actualStart!).inMinutes,
+      },
+    ));
   }
 }

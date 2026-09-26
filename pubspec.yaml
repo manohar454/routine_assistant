@@ -21,6 +21,8 @@ dependencies:
   just_audio: ^0.9.40                      # local music playback, free
   audio_session: ^0.1.21                   # audio focus/ducking, free
   flutter_foreground_task: ^8.10.0         # keeps workout timer alive in background, free
+  flutter_gemma: ^1.9.0                    # on-device LLM runtime (Feature E)
+  flutter_gemma_litertlm: ^1.5.0          # LiteRT inference engine for Gemma 3 1B
 
 dev_dependencies:
   flutter_lints: ^6.0.0

@@ -7,6 +7,7 @@ import '../db/database_helper.dart';
 import '../models/task.dart';
 import '../engine/preference_learning_engine.dart';
 import '../services/notification_service.dart';
+import '../services/llm_service.dart';
 import '../theme/app_theme.dart';
 
 class AddTaskScreen extends StatefulWidget {
@@ -118,8 +119,13 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     );
 
     await DatabaseHelper.instance.insertTask(task);
-    // Preference extraction: user voluntarily created this category → weak positive signal
+
+    // Preference extraction — two signals fired in parallel (fire-and-forget):
+    // 1. Weak positive weight nudge for this category (rule-based, always runs).
+    // 2. LLM-based extraction from task name — applies lead-time / voice-disable
+    //    preferences if the model is loaded; silently skipped if not ready yet.
     unawaited(PreferenceLearningEngine.instance.observeTaskCreated(_category));
+    unawaited(_extractLlmPreferences(task.name, _category));
 
     if (plannedStart.isAfter(DateTime.now())) {
       await NotificationService.instance.scheduleTaskReminder(
@@ -133,6 +139,33 @@ class _AddTaskScreenState extends State<AddTaskScreen>
 
     if (!mounted) return;
     Navigator.of(context).pop(true);
+  }
+
+  /// Fire-and-forget: asks the LLM to extract lead-time and voice-disable
+  /// preferences from the task name. Silently no-ops if model isn't ready.
+  Future<void> _extractLlmPreferences(
+      String taskName, String category) async {
+    final prefs =
+        await LlmService.instance.extractPreferences(taskName, category);
+    if (prefs.isEmpty) return;
+
+    final engine = PreferenceLearningEngine.instance;
+
+    final leadTimeStr = prefs['lead_time_minutes'];
+    if (leadTimeStr != null) {
+      final minutes = int.tryParse(leadTimeStr) ?? 0;
+      if (minutes > 0) {
+        await engine.setLeadTimeMinutes(category, minutes);
+      }
+    }
+
+    final voiceDisabledStr = prefs['voice_disabled'];
+    if (voiceDisabledStr != null) {
+      await engine.setVoiceDisabled(
+        category,
+        disabled: voiceDisabledStr == 'true',
+      );
+    }
   }
 
   @override
