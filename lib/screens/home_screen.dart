@@ -26,6 +26,7 @@ import 'analytics_screen.dart';
 import 'daily_report_screen.dart';
 import 'llm_settings_screen.dart';
 import 'reasoning_trace_screen.dart';
+import 'routine_timetable_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -446,6 +447,11 @@ class _HomeScreenState extends State<HomeScreen>
                         MaterialPageRoute(
                             builder: (_) => const ReasoningTraceScreen()),
                       ),
+                      onRoutine: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const RoutineTimetableScreen()),
+                      ),
                     ),
                   ),
                 ),
@@ -674,6 +680,7 @@ class _QuickActions extends StatelessWidget {
   final VoidCallback onAnalytics;
   final VoidCallback onDailyReport;
   final VoidCallback onDecisionLog;
+  final VoidCallback onRoutine;
 
   const _QuickActions({
     required this.waterMl,
@@ -691,6 +698,7 @@ class _QuickActions extends StatelessWidget {
     required this.onAnalytics,
     required this.onDailyReport,
     required this.onDecisionLog,
+    required this.onRoutine,
   });
 
   @override
@@ -751,6 +759,15 @@ class _QuickActions extends StatelessWidget {
           sub: 'Why the AI rescheduled',
           isDark: isDark,
           onTap: onDecisionLog,
+        ),
+        const SizedBox(height: 10),
+        // AI Voice Companion / Routine Timetable
+        _NavCard(
+          icon: Icons.record_voice_over_rounded,
+          label: 'Voice Companion',
+          sub: 'Daily routine & alarms',
+          isDark: isDark,
+          onTap: onRoutine,
         ),
         const SizedBox(height: 12),
         // 3-stat row

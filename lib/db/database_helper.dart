@@ -11,6 +11,7 @@ import '../models/behavior_profile.dart';
 import '../models/preference_learning_models.dart';
 import '../models/day_clustering_models.dart';
 import '../models/goal_models.dart';
+import '../models/routine_models.dart';
 
 class DatabaseHelper {
   DatabaseHelper._internal();
@@ -28,7 +29,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), 'routine_assistant.db');
     return openDatabase(
       path,
-      version: 12,
+      version: 13,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -66,8 +67,12 @@ class DatabaseHelper {
         await _createWorkoutTables(db);
         await _createAppSettingsTables(db);
         await _createGoalTables(db);
+        await _createRoutineTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 13) {
+          await _createRoutineTable(db);
+        }
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE tasks ADD COLUMN moodTag TEXT');
           await db.execute('''
@@ -280,6 +285,23 @@ class DatabaseHelper {
         weight REAL NOT NULL,
         rpe INTEGER,
         timestamp TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createRoutineTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS routine_entries (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        timeOfDayMinutes INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        message TEXT NOT NULL,
+        waterMl INTEGER,
+        durationMinutes INTEGER,
+        activeDays TEXT NOT NULL DEFAULT '[]',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        extra TEXT NOT NULL DEFAULT '{}'
       )
     ''');
   }
@@ -1088,6 +1110,62 @@ class DatabaseHelper {
         whereArgs: [goalPlanId],
         orderBy: 'weekNumber ASC');
     return maps.map((m) => WeeklyMilestone.fromMap(m)).toList();
+  }
+
+  // ---------------- Routine entries (AI Voice Companion) ----------------
+
+  Future<void> upsertRoutineEntry(RoutineEntry entry) async {
+    final db = await database;
+    await db.insert(
+      'routine_entries',
+      entry.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteRoutineEntry(String id) async {
+    final db = await database;
+    await db.delete('routine_entries', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<RoutineEntry>> getAllRoutineEntries() async {
+    final db = await database;
+    final maps = await db.query(
+      'routine_entries',
+      orderBy: 'timeOfDayMinutes ASC',
+    );
+    return maps.map((m) => RoutineEntry.fromMap(m)).toList();
+  }
+
+  Future<RoutineEntry?> getRoutineEntry(String id) async {
+    final db = await database;
+    final maps =
+        await db.query('routine_entries', where: 'id = ?', whereArgs: [id]);
+    if (maps.isEmpty) return null;
+    return RoutineEntry.fromMap(maps.first);
+  }
+
+  /// Returns all enabled entries for today's weekday (0=Mon…6=Sun).
+  Future<List<RoutineEntry>> getRoutineEntriesForToday() async {
+    final all = await getAllRoutineEntries();
+    final todayIndex = DateTime.now().weekday - 1; // Mon=0…Sun=6
+    return all.where((e) {
+      if (!e.enabled) return false;
+      if (e.activeDays.isEmpty) return true; // every day
+      return e.activeDays.contains(todayIndex);
+    }).toList();
+  }
+
+  /// Bulk-replace the entire schedule (used when applying week/month preset).
+  Future<void> replaceAllRoutineEntries(List<RoutineEntry> entries) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('routine_entries');
+      for (final e in entries) {
+        await txn.insert('routine_entries', e.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
   }
 
 }

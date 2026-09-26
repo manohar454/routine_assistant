@@ -18,6 +18,9 @@
     <!-- Phase 3: read device calendar for density signal -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
+    <!-- AI Voice Companion: full-screen wake alarm intent (Android 12+) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <!-- Phase 3: accelerometer for motion sensing (no permission needed on Android) -->
 
     <application
@@ -43,6 +46,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Handles notification tap when app is in background / killed -->
+            <intent-filter>
+                <action android:name="FLUTTER_NOTIFICATION_CLICK" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
         </activity>

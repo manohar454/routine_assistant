@@ -1,9 +1,52 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:flutter_timezone/flutter_timezone.dart';
 import '../engine/preference_learning_engine.dart';
+import '../db/database_helper.dart';
+import '../screens/wake_alarm_screen.dart';
+
+/// Global navigator key — allows notification taps to push routes
+/// without a BuildContext.
+final GlobalKey<NavigatorState> routineNavigatorKey =
+    GlobalKey<NavigatorState>();
+
+/// Top-level background callback (must be a top-level function).
+@pragma('vm:entry-point')
+void _onNotificationTapBackground(NotificationResponse response) {
+  // Background taps: store payload for app to handle on next launch.
+  // The foreground handler covers most real-world cases.
+}
+
+void _onNotificationTap(NotificationResponse response) {
+  _handleNotificationPayload(response.payload);
+}
+
+void _handleNotificationPayload(String? payload) {
+  if (payload == null) return;
+  if (!payload.startsWith('routine:')) return;
+
+  final parts = payload.split(':');
+  if (parts.length < 3) return;
+
+  final entryId = parts[1];
+  final typeName = parts[2];
+
+  if (typeName == 'wakeUp') {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final navigator = routineNavigatorKey.currentState;
+      if (navigator == null) return;
+      final entry = await DatabaseHelper.instance.getRoutineEntry(entryId);
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => WakeAlarmScreen(entry: entry),
+        ),
+      );
+    });
+  }
+}
 
 /// This is the RELIABILITY layer.
 ///
@@ -55,7 +98,11 @@ class NotificationService {
       iOS: iosSettings,
     );
 
-    await _plugin.initialize(initSettings);
+    await _plugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: _onNotificationTap,
+      onDidReceiveBackgroundNotificationResponse: _onNotificationTapBackground,
+    );
 
     await _requestAndroidPermissions();
   }
