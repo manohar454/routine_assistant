@@ -1,10 +1,13 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../db/database_helper.dart';
 import '../models/task.dart';
 import '../engine/reschedule_engine.dart';
 import '../engine/adaptive_learning_engine.dart';
+import '../engine/preference_learning_engine.dart';
 import '../engine/burnout_forecast_engine.dart';
+import '../models/preference_learning_models.dart';
 import '../services/tts_service.dart';
 import '../services/music_service.dart';
 import '../theme/app_theme.dart';
@@ -18,6 +21,9 @@ import 'workout_plan_editor_screen.dart';
 import 'water_tracker_screen.dart';
 import 'sleep_tracker_screen.dart';
 import 'meal_tracker_screen.dart';
+import 'goal_progress_screen.dart';
+import 'analytics_screen.dart';
+import 'daily_report_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,45 +32,77 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   final db = DatabaseHelper.instance;
   final rescheduleEngine = RescheduleEngine();
+
   List<Task> _todayTasks = [];
   Task? _activeMusicTask;
   bool _musicPlaying = false;
   int _todayWaterMl = 0;
+  int _waterGoalMl = 2500;
   Duration? _lastNightSleep;
   int _mealsLoggedToday = 0;
+  int _activeGoalCount = 0;
   BurnoutForecast? _burnoutForecast;
+  List<TaskImportanceWeight> _newlyLearnedPrefs = [];
+  final Set<String> _dismissedPrefCategories = {};
+
+  late AnimationController _fadeCtrl;
+  late Animation<double> _fadeAnim;
 
   @override
   void initState() {
     super.initState();
+    _fadeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
     MusicService.instance.init();
     _loadToday();
+  }
+
+  @override
+  void dispose() {
+    _fadeCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadToday() async {
     final tasks = await db.getTasksForDay(DateTime.now());
     if (!mounted) return;
     setState(() => _todayTasks = tasks);
-    await _loadWaterAndSleepSummary();
+    await _loadSummaries();
     await _checkForActiveMoodTask(tasks);
-
     final forecast = await BurnoutForecastEngine.instance.forecast();
+    final allWeights = await PreferenceLearningEngine.instance.getAllWeightsSorted();
     if (!mounted) return;
-    setState(() => _burnoutForecast = forecast);
+    setState(() {
+      _burnoutForecast = forecast;
+      _newlyLearnedPrefs = allWeights
+          .where((w) =>
+              w.isReliable &&
+              !_dismissedPrefCategories.contains(w.taskCategory))
+          .take(2)
+          .toList();
+    });
+    _fadeCtrl.forward(from: 0);
   }
 
-  Future<void> _loadWaterAndSleepSummary() async {
-    final waterMl = await DatabaseHelper.instance.getTotalWaterMlForDay(DateTime.now());
+  Future<void> _loadSummaries() async {
+    final waterMl =
+        await DatabaseHelper.instance.getTotalWaterMlForDay(DateTime.now());
     final lastNight = await DatabaseHelper.instance.getLastNightSleep();
     final mealLogs = await db.getMealLogsForDay(DateTime.now());
+    final goalPlans = await db.getActiveGoalPlans();
     if (!mounted) return;
     setState(() {
       _todayWaterMl = waterMl;
       _lastNightSleep = lastNight?.duration;
       _mealsLoggedToday = mealLogs.length;
+      _activeGoalCount = goalPlans.length;
     });
   }
 
@@ -82,13 +120,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (current == null) {
+      if (!mounted) return;
       setState(() {
         _activeMusicTask = null;
         _musicPlaying = false;
       });
       return;
     }
-
     if (_activeMusicTask?.id == current.id) return;
 
     final playlist = await db.getPlaylistForMood(current.moodTag!);
@@ -99,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await MusicService.instance
         .startForTask(playlist: playlist, tracks: tracks, volume: 0.8);
 
+    if (!mounted) return;
     setState(() {
       _activeMusicTask = current;
       _musicPlaying = true;
@@ -111,12 +150,10 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       await MusicService.instance.manualResume();
     }
+    if (!mounted) return;
     setState(() => _musicPlaying = !_musicPlaying);
   }
 
-  /// Lets the person pick which plan is active right now (Gym/Home/
-  /// Transformation), per the "all of them, selectable" decision — then
-  /// finds today's day-of-week template within that plan and launches it.
   Future<void> _showPlanPicker(BuildContext context) async {
     final plans = await db.getAllWorkoutPlans();
     if (!context.mounted) return;
@@ -125,310 +162,320 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (ctx) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(ctx).size.height * 0.8,
-        ),
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-        decoration: const BoxDecoration(
-          color: AppColors.cardSurface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        // Scrollable so any number of plans (or a small screen) never
-        // overflows — this was rendering an actual RenderFlex overflow
-        // banner before, since the Column had no scroll fallback.
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.mist,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text('Choose a plan', style: Theme.of(ctx).textTheme.titleLarge),
-              const SizedBox(height: 16),
-              for (final plan in plans)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(plan.name,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: plan.referenceNotes != null
-                      ? Text(plan.referenceNotes!,
-                          maxLines: 2, overflow: TextOverflow.ellipsis)
-                      : null,
-                  trailing: const Icon(Icons.chevron_right, color: AppColors.deepLight),
-                  onTap: () => Navigator.pop(ctx, plan),
-                ),
-              const Divider(),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.tune, color: AppColors.deep),
-                title: const Text('Manage plans',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: const Text('Add, edit, or remove plans and days'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const WorkoutPlanEditorScreen()),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+      builder: (ctx) => _PlanPickerSheet(plans: plans),
     );
 
     if (chosen == null || !context.mounted) return;
 
     final templates = await db.getTemplatesForPlan(chosen.id);
-    final todayWeekday = DateTime.now().weekday; // 1=Mon ... 7=Sun
-    final todaysTemplate = templates.where((t) => t.dayOfWeek == todayWeekday);
+    final todayWeekday = DateTime.now().weekday;
+    final todaysTemplate =
+        templates.where((t) => t.dayOfWeek == todayWeekday);
 
     if (todaysTemplate.isEmpty) {
-      // Previously this silently did nothing — exactly what looked like
-      // "the plan won't open." Now it explains why and offers the fix.
       if (!context.mounted) return;
       final goAdd = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text('No day set for today in "${chosen.name}"'),
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(AppRadius.lg)),
+          title: Text('No workout today in "${chosen.name}"'),
           content: const Text(
-              'This plan doesn\'t have a workout configured for today yet. Add one?'),
+              'This plan has no session for today. Add one now?'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add a day')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Add a day')),
           ],
         ),
       );
       if (goAdd == true && context.mounted) {
-        final nav = Navigator.of(context);
-        if (!context.mounted) return;
-
-        await nav.push(
+        await Navigator.push(
+          context,
           MaterialPageRoute(
-            builder: (_) => WorkoutPlanEditorScreen(initialPlan: chosen),
-          ),
+              builder: (_) =>
+                  WorkoutPlanEditorScreen(initialPlan: chosen)),
         );
       }
+      return;
     }
 
     if (context.mounted) {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => WorkoutSessionScreen(templateId: todaysTemplate.first.id),
+          builder: (_) =>
+              WorkoutSessionScreen(templateId: todaysTemplate.first.id),
         ),
       );
     }
   }
 
   Future<void> _checkIn(Task task) async {
-    // Phase 2: check if this task is running abnormally long BEFORE
-    // showing the modal — this drives the framing of the question.
-    String checkInSubtitle = 'Is this done?';
+    String subtitle = 'Is this done?';
 
     if (task.actualStart != null) {
-      final elapsedMinutes =
+      final elapsed =
           DateTime.now().difference(task.actualStart!).inMinutes.toDouble();
       final anomaly =
           await AdaptiveLearningEngine.instance.checkDurationAnomaly(
         taskCategory: task.category,
-        elapsedMinutes: elapsedMinutes,
+        elapsedMinutes: elapsed,
       );
-
       if (!mounted) return;
-
       if (anomaly.level == AnomalyLevel.mild) {
-        checkInSubtitle = 'Taking a bit longer than usual — still going?';
+        subtitle = 'Taking a bit longer than usual — still going?';
       } else if (anomaly.level == AnomalyLevel.strong) {
-        checkInSubtitle =
-            'This is running significantly longer than your usual pace.';
+        subtitle = 'Running significantly longer than your usual pace.';
       }
     }
 
     if (!mounted) return;
-
-    // Keep the BuildContext usage inside a separate synchronous helper.
-    // This avoids use_build_context_synchronously after the adaptive
-    // engine's await above.
     final isDone = await _showCheckInSheet(
-      taskName: task.name,
-      subtitle: checkInSubtitle,
-    );
-
+        taskName: task.name, subtitle: subtitle);
     if (isDone == null) return;
 
     if (isDone) {
-      AdaptiveLearningEngine.instance.recordInterventionOutcome(
-        InterventionStyle.gentleVoice,
-        success: true,
-      );
+      AdaptiveLearningEngine.instance
+          .recordInterventionOutcome(InterventionStyle.gentleVoice, success: true);
       await rescheduleEngine.markCompleted(task);
       await TtsService.instance.speak('Nice work finishing ${task.name}.');
     } else {
       if (!mounted) return;
-      final extraMinutes = await _askExtraTime();
-      if (extraMinutes == null) return;
-
+      final extra = await _askExtraTime();
+      if (extra == null) return;
       final result = await rescheduleEngine.applyDelay(
-        delayedTask: task,
-        delayMinutes: extraMinutes,
-      );
-
+          delayedTask: task, delayMinutes: extra);
       if (result.conflictedFixedTask != null) {
-        await TtsService.instance.speak(
-          'Heads up — this delay runs into your fixed task, '
-          '${result.conflictedFixedTask!.name}. Please review your schedule.',
+        PreferenceLearningEngine.instance.recordConflict(
+          keptTaskCategory: result.conflictedFixedTask!.category,
+          droppedTaskCategory: task.category,
+          reason: 'delay_conflict',
         );
+        await TtsService.instance.speak(
+            'Heads up — delay runs into ${result.conflictedFixedTask!.name}. Review your schedule.');
       } else if (result.shiftedTasks.isNotEmpty) {
         await TtsService.instance.speak(
-          'No problem. I have shifted ${result.shiftedTasks.length} '
-          'later tasks by $extraMinutes minutes.',
-        );
+            'No problem. Shifted ${result.shiftedTasks.length} tasks by $extra minutes.');
       }
     }
-
     await _loadToday();
   }
 
-  Future<bool?> _showCheckInSheet({
-    required String taskName,
-    required String subtitle,
-  }) {
+  Future<bool?> _showCheckInSheet(
+      {required String taskName, required String subtitle}) {
     return showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _CheckInSheet(
-        taskName: taskName,
-        subtitle: subtitle,
-      ),
+      builder: (_) =>
+          _CheckInSheet(taskName: taskName, subtitle: subtitle),
     );
   }
 
-  Future<int?> _askExtraTime() async {
+  Future<int?> _askExtraTime() {
     return showModalBottomSheet<int>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => const _ExtraTimeSheet(),
+      builder: (_) => const _ExtraTimeSheet(),
     );
   }
 
+  // ─── Computed helpers ────────────────────────────────────────────────────
+
+  String get _greeting {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  int get _completedCount =>
+      _todayTasks.where((t) => t.status == TaskStatus.completed).length;
+
+  double get _progressRatio =>
+      _todayTasks.isEmpty ? 0 : _completedCount / _todayTasks.length;
+
+  // ─── Build ───────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final dateLabel = DateFormat('EEEE, MMMM d').format(DateTime.now());
+    final isDark = context.isDark;
+    final dateLabel =
+        DateFormat('EEEE, d MMMM').format(DateTime.now()).toUpperCase();
 
     return Scaffold(
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _loadToday,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
-            children: [
-              Text(dateLabel.toUpperCase(), style: textTheme.labelSmall),
-              const SizedBox(height: 4),
-              Text('Good morning', style: textTheme.displaySmall),
-              const SizedBox(height: 20),
-              if (_activeMusicTask != null) ...[
-                MiniPlayer(
-                  trackTitle: _activeMusicTask!.name,
-                  subtitle: 'Now playing · ${_activeMusicTask!.moodTag}',
-                  isPlaying: _musicPlaying,
-                  onTogglePlay: _toggleMusic,
-                ),
-                const SizedBox(height: 20),
-              ],
-              _WorkoutQuickStart(
-                onTap: () async {
-                  if (context.mounted) await _showPlanPicker(context);
-                },
-              ),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const WorkoutProgressScreen()),
-                ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text('View progress',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.deepLight)),
-                      SizedBox(width: 2),
-                      Icon(Icons.arrow_forward, size: 14, color: AppColors.deepLight),
-                    ],
+          color: isDark ? AppColors.darkDeep : AppColors.deep,
+          child: FadeTransition(
+            opacity: _fadeAnim,
+            child: CustomScrollView(
+              slivers: [
+                // ── Header ──────────────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                    child: _Header(
+                      dateLabel: dateLabel,
+                      greeting: _greeting,
+                      progressRatio: _progressRatio,
+                      completed: _completedCount,
+                      total: _todayTasks.length,
+                      isDark: isDark,
+                    ),
                   ),
                 ),
-              ),
-              if (_burnoutForecast != null &&
-                  _burnoutForecast!.shouldSurface &&
-                  _burnoutForecast!.level != BurnoutRiskLevel.low)
-                _BurnoutCard(forecast: _burnoutForecast!),
-              if (_burnoutForecast != null &&
-                  _burnoutForecast!.shouldSurface &&
-                  _burnoutForecast!.level != BurnoutRiskLevel.low)
-                const SizedBox(height: 16),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: _SummaryCard(
-                      icon: Icons.water_drop,
-                      iconColor: AppColors.deepLight,
-                      title: '${(_todayWaterMl / 1000).toStringAsFixed(1)}L',
-                      subtitle: 'Water today',
-                      onTap: () async {
-                        await Navigator.push(context, MaterialPageRoute(builder: (_) => const WaterTrackerScreen()));
-                        await _loadWaterAndSleepSummary();
-                      },
+                // ── Mini player ─────────────────────────────────────────
+                if (_activeMusicTask != null)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: MiniPlayer(
+                        trackTitle: _activeMusicTask!.name,
+                        subtitle:
+                            'Now playing · ${_activeMusicTask!.moodTag}',
+                        isPlaying: _musicPlaying,
+                        onTogglePlay: _toggleMusic,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _SummaryCard(
-                      icon: Icons.bedtime,
-                      iconColor: AppColors.moss,
-                      title: _lastNightSleep != null ? '${_lastNightSleep!.inHours}h${_lastNightSleep!.inMinutes % 60}m' : '—',
-                      subtitle: 'Sleep last night',
-                      onTap: () async {
-                        await Navigator.push(context, MaterialPageRoute(builder: (_) => const SleepTrackerScreen()));
-                        await _loadWaterAndSleepSummary();
-                      },
+
+                // ── Preference confirmation banners ──────────────────────
+                if (_newlyLearnedPrefs.isNotEmpty)
+                  for (final pref in _newlyLearnedPrefs)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                        child: _PrefConfirmBanner(
+                          weight: pref,
+                          isDark: isDark,
+                          onDismiss: () {
+                            setState(() {
+                              _dismissedPrefCategories.add(pref.taskCategory);
+                              _newlyLearnedPrefs = _newlyLearnedPrefs
+                                  .where((w) => w.taskCategory != pref.taskCategory)
+                                  .toList();
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+
+                // ── Burnout card ────────────────────────────────────────
+                if (_burnoutForecast != null &&
+                    _burnoutForecast!.shouldSurface &&
+                    _burnoutForecast!.level != BurnoutRiskLevel.low)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: _BurnoutCard(
+                          forecast: _burnoutForecast!, isDark: isDark),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _SummaryCard(
-                      icon: Icons.restaurant,
-                      iconColor: AppColors.amber,
-                      title: '$_mealsLoggedToday',
-                      subtitle: 'Meals today',
-                      onTap: () async {
-                        await Navigator.push(context, MaterialPageRoute(builder: (_) => const MealTrackerScreen()));
-                        await _loadWaterAndSleepSummary();
+
+                // ── Quick-action grid ───────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: _QuickActions(
+                      waterMl: _todayWaterMl,
+                      waterGoalMl: _waterGoalMl,
+                      sleep: _lastNightSleep,
+                      meals: _mealsLoggedToday,
+                      activeGoals: _activeGoalCount,
+                      isDark: isDark,
+                      onWorkout: () => _showPlanPicker(context),
+                      onProgress: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const WorkoutProgressScreen()),
+                      ),
+                      onWater: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const WaterTrackerScreen()),
+                        );
+                        await _loadSummaries();
                       },
+                      onSleep: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const SleepTrackerScreen()),
+                        );
+                        await _loadSummaries();
+                      },
+                      onMeals: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const MealTrackerScreen()),
+                        );
+                        await _loadSummaries();
+                      },
+                      onGoals: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const GoalProgressScreen()),
+                        );
+                        await _loadSummaries();
+                      },
+                      onAnalytics: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const AnalyticsScreen()),
+                      ),
+                      onDailyReport: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const DailyReportScreen()),
+                      ),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              DaySpineTimeline(tasks: _todayTasks, onCheckIn: _checkIn),
-            ],
+                ),
+
+                // ── Today's tasks heading ───────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 28, 20, 12),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Today',
+                          style: context.text.headlineSmall,
+                        ),
+                        const Spacer(),
+                        if (_todayTasks.isNotEmpty)
+                          Text(
+                            '$_completedCount / ${_todayTasks.length} done',
+                            style: context.text.labelMedium,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── Timeline ────────────────────────────────────────────
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+                  sliver: SliverToBoxAdapter(
+                    child: DaySpineTimeline(
+                      tasks: _todayTasks,
+                      onCheckIn: _checkIn,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -440,101 +487,744 @@ class _HomeScreenState extends State<HomeScreen> {
           );
           await _loadToday();
         },
-        child: const Icon(Icons.add),
+        child: const Icon(Icons.add, size: 26),
       ),
     );
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Header widget
+// ─────────────────────────────────────────────────────────────────────────────
 
-class _BurnoutCard extends StatelessWidget {
-  final BurnoutForecast forecast;
-  const _BurnoutCard({required this.forecast});
+class _Header extends StatelessWidget {
+  final String dateLabel;
+  final String greeting;
+  final double progressRatio;
+  final int completed;
+  final int total;
+  final bool isDark;
 
-  Color get _cardColor {
-    switch (forecast.level) {
-      case BurnoutRiskLevel.low:
-        return const Color(0xFFEFF3EE);
-      case BurnoutRiskLevel.moderate:
-        return const Color(0xFFFBF3E8);
-      case BurnoutRiskLevel.high:
-        return const Color(0xFFFBEAE0);
-    }
+  const _Header({
+    required this.dateLabel,
+    required this.greeting,
+    required this.progressRatio,
+    required this.completed,
+    required this.total,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                dateLabel,
+                style: context.text.labelSmall?.copyWith(
+                  color: isDark
+                      ? AppColors.darkDeep
+                      : AppColors.deepLight,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(greeting, style: context.text.displaySmall),
+              if (total > 0) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '$completed of $total tasks complete',
+                  style: context.text.bodyMedium,
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        _ProgressRing(ratio: progressRatio, isDark: isDark),
+      ],
+    );
   }
+}
 
-  Color get _iconColor {
-    switch (forecast.level) {
-      case BurnoutRiskLevel.low:
-        return AppColors.moss;
-      case BurnoutRiskLevel.moderate:
-        return AppColors.amber;
-      case BurnoutRiskLevel.high:
-        return AppColors.clay;
-    }
+class _ProgressRing extends StatelessWidget {
+  final double ratio;
+  final bool isDark;
+
+  const _ProgressRing({required this.ratio, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 64,
+      height: 64,
+      child: CustomPaint(
+        painter: _RingPainter(
+          ratio: ratio,
+          trackColor:
+              isDark ? AppColors.darkBorder : AppColors.mist,
+          fillColor: isDark ? AppColors.darkMoss : AppColors.moss,
+        ),
+        child: Center(
+          child: Text(
+            '${(ratio * 100).round()}%',
+            style: context.text.labelSmall?.copyWith(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: isDark ? AppColors.darkMoss : AppColors.moss,
+            ),
+          ),
+        ),
+      ),
+    );
   }
+}
 
-  IconData get _icon {
-    switch (forecast.level) {
-      case BurnoutRiskLevel.low:
-        return Icons.check_circle_outline;
-      case BurnoutRiskLevel.moderate:
-        return Icons.info_outline;
-      case BurnoutRiskLevel.high:
-        return Icons.warning_amber_outlined;
+class _RingPainter extends CustomPainter {
+  final double ratio;
+  final Color trackColor;
+  final Color fillColor;
+
+  const _RingPainter(
+      {required this.ratio,
+      required this.trackColor,
+      required this.fillColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 4;
+    const stroke = 5.0;
+
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..strokeWidth = stroke
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final fillPaint = Paint()
+      ..color = fillColor
+      ..strokeWidth = stroke
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawCircle(center, radius, trackPaint);
+    if (ratio > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -math.pi / 2,
+        2 * math.pi * ratio,
+        false,
+        fillPaint,
+      );
     }
   }
 
   @override
+  bool shouldRepaint(_RingPainter old) => old.ratio != ratio;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quick-action grid
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _QuickActions extends StatelessWidget {
+  final int waterMl;
+  final int waterGoalMl;
+  final Duration? sleep;
+  final int meals;
+  final int activeGoals;
+  final bool isDark;
+  final VoidCallback onWorkout;
+  final VoidCallback onProgress;
+  final VoidCallback onWater;
+  final VoidCallback onSleep;
+  final VoidCallback onMeals;
+  final VoidCallback onGoals;
+  final VoidCallback onAnalytics;
+  final VoidCallback onDailyReport;
+
+  const _QuickActions({
+    required this.waterMl,
+    required this.waterGoalMl,
+    required this.sleep,
+    required this.meals,
+    required this.activeGoals,
+    required this.isDark,
+    required this.onWorkout,
+    required this.onProgress,
+    required this.onWater,
+    required this.onSleep,
+    required this.onMeals,
+    required this.onGoals,
+    required this.onAnalytics,
+    required this.onDailyReport,
+  });
+
+  @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final sleepLabel = sleep != null
+        ? '${sleep!.inHours}h ${sleep!.inMinutes % 60}m'
+        : '—';
+    final waterLabel =
+        '${(waterMl / 1000).toStringAsFixed(1)}L';
+    final waterRatio =
+        (waterMl / waterGoalMl).clamp(0.0, 1.0);
+
+    return Column(
+      children: [
+        // Workout hero card
+        _WorkoutCard(
+          isDark: isDark,
+          onStart: onWorkout,
+          onProgress: onProgress,
+        ),
+        const SizedBox(height: 12),
+        // Goals card
+        _GoalsCard(
+          activeGoals: activeGoals,
+          isDark: isDark,
+          onTap: onGoals,
+        ),
+        const SizedBox(height: 12),
+        // Analytics + Daily Report row
+        Row(
+          children: [
+            Expanded(
+              child: _NavCard(
+                icon: Icons.bar_chart_rounded,
+                label: 'Analytics',
+                sub: 'Trends & burnout',
+                isDark: isDark,
+                onTap: onAnalytics,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _NavCard(
+                icon: Icons.summarize_rounded,
+                label: 'Daily Report',
+                sub: 'Summary & alerts',
+                isDark: isDark,
+                onTap: onDailyReport,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // 3-stat row
+        Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                icon: Icons.water_drop_rounded,
+                iconColor: isDark
+                    ? AppColors.darkDeep
+                    : AppColors.deepLight,
+                value: waterLabel,
+                label: 'Water',
+                sub: '${(waterRatio * 100).round()}% of goal',
+                progressRatio: waterRatio,
+                progressColor:
+                    isDark ? AppColors.darkDeep : AppColors.deepLight,
+                isDark: isDark,
+                onTap: onWater,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.bedtime_rounded,
+                iconColor:
+                    isDark ? AppColors.darkMoss : AppColors.moss,
+                value: sleepLabel,
+                label: 'Sleep',
+                sub: 'Last night',
+                isDark: isDark,
+                onTap: onSleep,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.restaurant_rounded,
+                iconColor:
+                    isDark ? AppColors.darkAmber : AppColors.amber,
+                value: '$meals',
+                label: 'Meals',
+                sub: 'Today',
+                isDark: isDark,
+                onTap: onMeals,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _NavCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String sub;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _NavCard({
+    required this.icon,
+    required this.label,
+    required this.sub,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isDark ? AppColors.darkCard : AppColors.cardSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.mist;
+    final accent = isDark ? AppColors.darkDeep : AppColors.deep;
+    final iconBg = isDark ? const Color(0xFF1D2535) : const Color(0xFFEEF2FF);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: const BorderRadius.all(AppRadius.lg),
+          border: Border.all(color: border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: iconBg,
+                borderRadius: const BorderRadius.all(AppRadius.sm),
+              ),
+              child: Icon(icon, color: accent, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: context.text.titleSmall),
+                  const SizedBox(height: 1),
+                  Text(sub,
+                      style: context.text.bodySmall,
+                      overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GoalsCard extends StatelessWidget {
+  final int activeGoals;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _GoalsCard({
+    required this.activeGoals,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isDark ? AppColors.darkCard : AppColors.cardSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.mist;
+    final iconBg = isDark ? const Color(0xFF1D2535) : const Color(0xFFEEF2FF);
+    final accent = isDark ? AppColors.darkDeep : AppColors.deep;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: const BorderRadius.all(AppRadius.lg),
+          border: Border.all(color: border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: iconBg,
+                borderRadius: const BorderRadius.all(AppRadius.md),
+              ),
+              child: Icon(
+                Icons.flag_rounded,
+                color: accent,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Goals', style: context.text.titleMedium),
+                  const SizedBox(height: 2),
+                  Text(
+                    activeGoals == 0
+                        ? 'No active goals — tap to add one'
+                        : '$activeGoals active ${activeGoals == 1 ? 'goal' : 'goals'}',
+                    style: context.text.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkoutCard extends StatelessWidget {
+  final bool isDark;
+  final VoidCallback onStart;
+  final VoidCallback onProgress;
+
+  const _WorkoutCard({
+    required this.isDark,
+    required this.onStart,
+    required this.onProgress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isDark ? AppColors.darkCard : AppColors.cardSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.mist;
+    final iconBg = isDark
+        ? const Color(0xFF1A2E1E)
+        : AppColors.mossLight;
+
+    return GestureDetector(
+      onTap: onStart,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: const BorderRadius.all(AppRadius.lg),
+          border: Border.all(color: border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: iconBg,
+                borderRadius: const BorderRadius.all(AppRadius.md),
+              ),
+              child: Icon(
+                Icons.fitness_center_rounded,
+                color: isDark ? AppColors.darkMoss : AppColors.moss,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Today's Workout",
+                      style: context.text.titleMedium),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Tap to start or resume your session',
+                    style: context.text.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              children: [
+                GestureDetector(
+                  onTap: onStart,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkMoss
+                          : AppColors.moss,
+                      borderRadius: const BorderRadius.all(AppRadius.sm),
+                    ),
+                    child: Text(
+                      'Start',
+                      style: context.text.labelSmall?.copyWith(
+                        color: Colors.white,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: onProgress,
+                  child: Text(
+                    'Progress →',
+                    style: context.text.labelSmall?.copyWith(
+                      color: isDark
+                          ? AppColors.darkDeep
+                          : AppColors.deepLight,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+  final String sub;
+  final double? progressRatio;
+  final Color? progressColor;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _StatCard({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+    required this.sub,
+    this.progressRatio,
+    this.progressColor,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isDark ? AppColors.darkCard : AppColors.cardSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.mist;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          border: Border.all(color: border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: iconColor, size: 18),
+            const SizedBox(height: 10),
+            Text(
+              value,
+              style: context.text.headlineSmall?.copyWith(fontSize: 17),
+            ),
+            const SizedBox(height: 2),
+            Text(label, style: context.text.labelSmall),
+            if (progressRatio != null) ...[
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: const BorderRadius.all(AppRadius.sm),
+                child: LinearProgressIndicator(
+                  value: progressRatio,
+                  minHeight: 3,
+                  backgroundColor:
+                      isDark ? AppColors.darkBorder : AppColors.mist,
+                  valueColor:
+                      AlwaysStoppedAnimation(progressColor!),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(sub, style: context.text.bodySmall),
+            ] else ...[
+              const SizedBox(height: 2),
+              Text(sub, style: context.text.bodySmall),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preference confirmation banner
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PrefConfirmBanner extends StatelessWidget {
+  final TaskImportanceWeight weight;
+  final bool isDark;
+  final VoidCallback onDismiss;
+
+  const _PrefConfirmBanner({
+    required this.weight,
+    required this.isDark,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = isDark ? AppColors.darkDeep : AppColors.deep;
+    final bg = isDark ? const Color(0xFF1D2535) : const Color(0xFFEEF2FF);
+    final pct = (weight.weight * 100).round();
+
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
       decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(16),
+        color: bg,
+        borderRadius: const BorderRadius.all(AppRadius.lg),
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lightbulb_outline_rounded, color: accent, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'You tend to prioritize ${weight.taskCategory}',
+                  style: context.text.titleSmall?.copyWith(color: accent),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Learned from ${weight.sampleCount} sessions · $pct% importance',
+                  style: context.text.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.close_rounded,
+              size: 18,
+              color: isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+            ),
+            onPressed: onDismiss,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Burnout card
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _BurnoutCard extends StatelessWidget {
+  final BurnoutForecast forecast;
+  final bool isDark;
+
+  const _BurnoutCard({required this.forecast, required this.isDark});
+
+  Color get _bg => switch (forecast.level) {
+        BurnoutRiskLevel.low  => AppColors.burnoutLow(isDark),
+        BurnoutRiskLevel.moderate => AppColors.burnoutMid(isDark),
+        BurnoutRiskLevel.high => AppColors.burnoutHigh(isDark),
+      };
+
+  Color get _accent => switch (forecast.level) {
+        BurnoutRiskLevel.low  =>
+          isDark ? AppColors.darkMoss : AppColors.moss,
+        BurnoutRiskLevel.moderate =>
+          isDark ? AppColors.darkAmber : AppColors.amber,
+        BurnoutRiskLevel.high =>
+          isDark ? AppColors.darkClay : AppColors.clay,
+      };
+
+  IconData get _icon => switch (forecast.level) {
+        BurnoutRiskLevel.low      => Icons.check_circle_outline_rounded,
+        BurnoutRiskLevel.moderate => Icons.info_outline_rounded,
+        BurnoutRiskLevel.high     => Icons.warning_amber_rounded,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: const BorderRadius.all(AppRadius.lg),
+        border: Border.all(color: _accent.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(_icon, color: _iconColor, size: 18),
+              Icon(_icon, color: _accent, size: 18),
               const SizedBox(width: 8),
-              Text(
-                forecast.level == BurnoutRiskLevel.high
-                    ? 'High recovery load'
-                    : 'Recovery load building',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  color: _iconColor,
+              Expanded(
+                child: Text(
+                  forecast.level == BurnoutRiskLevel.high
+                      ? 'High recovery load'
+                      : 'Recovery load building',
+                  style: context.text.titleSmall
+                      ?.copyWith(color: _accent),
                 ),
               ),
-              const Spacer(),
-              Text(
-                '${(forecast.confidence * 100).toStringAsFixed(0)}% confidence',
-                style: textTheme.bodyMedium?.copyWith(fontSize: 11),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: _accent.withValues(alpha: 0.15),
+                  borderRadius: const BorderRadius.all(AppRadius.pill),
+                ),
+                child: Text(
+                  '${(forecast.confidence * 100).round()}%',
+                  style: context.text.labelSmall
+                      ?.copyWith(color: _accent),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(forecast.summary, style: textTheme.bodyMedium),
+          const SizedBox(height: 8),
+          Text(forecast.summary, style: context.text.bodyMedium),
           if (forecast.contributingReasons.isNotEmpty) ...[
             const SizedBox(height: 8),
-            for (final reason in forecast.contributingReasons)
+            for (final r in forecast.contributingReasons)
               Padding(
-                padding: const EdgeInsets.only(bottom: 2),
+                padding: const EdgeInsets.only(bottom: 3),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('• ', style: TextStyle(fontSize: 12)),
+                    Text('·  ',
+                        style: TextStyle(
+                            color: _accent, fontWeight: FontWeight.w700)),
                     Expanded(
-                      child: Text(
-                        reason,
-                        style: textTheme.bodyMedium?.copyWith(fontSize: 12),
-                      ),
-                    ),
+                        child: Text(r,
+                            style: context.text.bodySmall)),
                   ],
                 ),
               ),
@@ -545,24 +1235,107 @@ class _BurnoutCard extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan picker bottom sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PlanPickerSheet extends StatelessWidget {
+  final List<WorkoutPlan> plans;
+  const _PlanPickerSheet({required this.plans});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    return Container(
+      constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.cardSurface,
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.darkBorder
+                      : AppColors.mist,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Choose a plan', style: context.text.titleLarge),
+            const SizedBox(height: 16),
+            for (final plan in plans)
+              ListTile(
+                title: Text(plan.name),
+                subtitle: plan.referenceNotes != null
+                    ? Text(plan.referenceNotes!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis)
+                    : null,
+                trailing: Icon(Icons.chevron_right,
+                    color: isDark
+                        ? AppColors.darkDeep
+                        : AppColors.deepLight),
+                onTap: () => Navigator.pop(context, plan),
+              ),
+            Divider(
+                color: isDark
+                    ? AppColors.darkBorder
+                    : AppColors.mist),
+            ListTile(
+              leading: Icon(Icons.tune_rounded,
+                  color:
+                      isDark ? AppColors.darkDeep : AppColors.deep),
+              title: const Text('Manage plans'),
+              subtitle:
+                  const Text('Add, edit, or remove plans and days'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) =>
+                          const WorkoutPlanEditorScreen()),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Check-in sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _CheckInSheet extends StatelessWidget {
   final String taskName;
   final String subtitle;
 
-  const _CheckInSheet({
-    required this.taskName,
-    this.subtitle = 'Is this done?',
-  });
+  const _CheckInSheet({required this.taskName, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
+    final isDark = context.isDark;
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-      decoration: const BoxDecoration(
-        color: AppColors.cardSurface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.cardSurface,
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -571,43 +1344,47 @@ class _CheckInSheet extends StatelessWidget {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: AppColors.mist,
+              color: isDark ? AppColors.darkBorder : AppColors.mist,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           Container(
-            width: 52,
-            height: 52,
-            decoration: const BoxDecoration(
-              color: Color(0xFFEFF3EE),
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF1A2E1E)
+                  : AppColors.mossLight,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.task_alt, color: AppColors.moss, size: 24),
+            child: Icon(Icons.task_alt_rounded,
+                color:
+                    isDark ? AppColors.darkMoss : AppColors.moss,
+                size: 26),
           ),
           const SizedBox(height: 16),
-          Text(subtitle, style: textTheme.titleLarge),
-          const SizedBox(height: 24),
+          Text(taskName,
+              style: context.text.titleMedium,
+              textAlign: TextAlign.center),
+          const SizedBox(height: 6),
+          Text(subtitle,
+              style: context.text.bodyMedium,
+              textAlign: TextAlign.center),
+          const SizedBox(height: 28),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
                   onPressed: () => Navigator.pop(context, false),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.mist),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
                   child: const Text('Not yet'),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
                   onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Done'),
+                  child: const Text('Done ✓'),
                 ),
               ),
             ],
@@ -618,6 +1395,10 @@ class _CheckInSheet extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Extra time sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _ExtraTimeSheet extends StatefulWidget {
   const _ExtraTimeSheet();
 
@@ -627,17 +1408,17 @@ class _ExtraTimeSheet extends StatefulWidget {
 
 class _ExtraTimeSheetState extends State<_ExtraTimeSheet> {
   int _selected = 15;
-  final options = const [5, 15, 30];
+  final _options = const [5, 15, 30, 60];
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
+    final isDark = context.isDark;
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-      decoration: const BoxDecoration(
-        color: AppColors.cardSurface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.cardSurface,
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -648,26 +1429,34 @@ class _ExtraTimeSheetState extends State<_ExtraTimeSheet> {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.mist,
+                color:
+                    isDark ? AppColors.darkBorder : AppColors.mist,
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
           ),
+          const SizedBox(height: 24),
+          Text('How much more time?', style: context.text.titleLarge),
+          const SizedBox(height: 6),
+          Text(
+            'Later tasks will shift accordingly.',
+            style: context.text.bodyMedium,
+          ),
           const SizedBox(height: 20),
-          Text('How much more time?', style: textTheme.titleLarge),
-          const SizedBox(height: 16),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              for (final m in options)
+              for (final m in _options)
                 _TimeChip(
-                  label: '$m min',
+                  label: m < 60 ? '$m min' : '1 hour',
                   selected: _selected == m,
+                  isDark: isDark,
                   onTap: () => setState(() => _selected = m),
                 ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
@@ -684,106 +1473,43 @@ class _ExtraTimeSheetState extends State<_ExtraTimeSheet> {
 class _TimeChip extends StatelessWidget {
   final String label;
   final bool selected;
+  final bool isDark;
   final VoidCallback onTap;
-  const _TimeChip(
-      {required this.label, required this.selected, required this.onTap});
+
+  const _TimeChip({
+    required this.label,
+    required this.selected,
+    required this.isDark,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final activeColor = isDark ? AppColors.darkDeep : AppColors.deep;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.mist;
+
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? AppColors.deep : Colors.transparent,
-          border: Border.all(color: selected ? AppColors.deep : AppColors.mist),
-          borderRadius: BorderRadius.circular(20),
+          color: selected ? activeColor : Colors.transparent,
+          border: Border.all(
+              color: selected ? activeColor : borderColor),
+          borderRadius: const BorderRadius.all(AppRadius.pill),
         ),
         child: Text(
           label,
-          style: TextStyle(
+          style: context.text.labelMedium?.copyWith(
+            color: selected
+                ? (isDark ? AppColors.darkCanvas : Colors.white)
+                : (isDark
+                    ? AppColors.darkInkSubtle
+                    : AppColors.inkSubtle),
             fontWeight: FontWeight.w700,
-            fontSize: 13,
-            color: selected ? AppColors.canvas : AppColors.deepLight,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _SummaryCard({required this.icon, required this.iconColor, required this.title, required this.subtitle, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: AppColors.cardSurface, border: Border.all(color: AppColors.mist), borderRadius: BorderRadius.circular(16)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, color: iconColor, size: 20),
-          const SizedBox(height: 8),
-          Text(title, style: const TextStyle(fontFamily: 'Fraunces', fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.deep)),
-          const SizedBox(height: 2),
-          Text(subtitle, style: const TextStyle(fontSize: 11, color: Color(0xFF8A8A80))),
-        ]),
-      ),
-    );
-  }
-}
-
-/// A simple entry card into the workout module. This stands in for the
-/// full Monthly Template Editor screen (a separate future piece) — for
-/// now it launches (or resumes) today's demo Push Day session directly.
-class _WorkoutQuickStart extends StatelessWidget {
-  final VoidCallback onTap;
-  const _WorkoutQuickStart({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppColors.cardSurface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.mist),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFF3EE),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.fitness_center, color: AppColors.moss),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Push Day',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                  SizedBox(height: 2),
-                  Text('Tap to start or resume today\'s workout',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF8A8A80))),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: AppColors.deepLight),
-          ],
         ),
       ),
     );

@@ -3,6 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:flutter_timezone/flutter_timezone.dart';
+import '../engine/preference_learning_engine.dart';
 
 /// This is the RELIABILITY layer.
 ///
@@ -101,31 +102,51 @@ class NotificationService {
   ///
   /// If exact-alarm permission isn't available, falls back to
   /// inexact scheduling rather than breaking the Save flow.
+  ///
+  /// If [taskCategory] is provided, applies two per-category learned preferences:
+  /// - lead-time: fires N minutes before [scheduledTime] (default 0 = at task start)
+  /// - voice-disable: sets notification to silent if user has disabled voice for that category
   Future<void> scheduleTaskReminder({
     required int notificationId,
     required String title,
     required String body,
     required DateTime scheduledTime,
+    String? taskCategory,
   }) async {
+    // Apply per-category preference rules.
+    DateTime fireAt = scheduledTime;
+    bool silent = false;
+    if (taskCategory != null) {
+      final engine = PreferenceLearningEngine.instance;
+      final leadMinutes = await engine.getLeadTimeMinutes(taskCategory);
+      if (leadMinutes > 0) {
+        fireAt = scheduledTime.subtract(Duration(minutes: leadMinutes));
+        // Never fire in the past — clamp to now + 5s.
+        final earliest = DateTime.now().add(const Duration(seconds: 5));
+        if (fireAt.isBefore(earliest)) fireAt = earliest;
+      }
+      silent = await engine.isVoiceDisabled(taskCategory);
+    }
+
     final tzTime = tz.TZDateTime.from(
-      scheduledTime,
+      fireAt,
       tz.local,
     );
 
-    const androidDetails =
-        AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'routine_channel',
       'Routine Reminders',
       channelDescription:
           'Voice-linked task reminders',
       importance: Importance.max,
       priority: Priority.high,
+      playSound: !silent,
+      enableVibration: !silent,
     );
 
-    const iosDetails =
-        DarwinNotificationDetails();
+    const iosDetails = DarwinNotificationDetails();
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );

@@ -26,6 +26,24 @@ class PreferenceLearningEngine {
   static const double _alpha = 0.15; // learning rate — conservative
 
   // ----------------------------------------------------------------
+  // Observing voluntary task creation
+  // ----------------------------------------------------------------
+
+  /// Call when the user explicitly creates a task. Treats this as a
+  /// weak positive signal for that category — the user chose to schedule
+  /// it, so it's something they care about. The nudge is smaller than
+  /// a conflict resolution (0.05 vs 0.15) to avoid over-weighting.
+  Future<void> observeTaskCreated(String taskCategory) async {
+    const creationNudge = 0.05;
+    final weight = await _getOrCreateWeight(taskCategory);
+    weight.weight += creationNudge * (1.0 - weight.weight);
+    weight.sampleCount++;
+    weight.lastUpdated = DateTime.now();
+    await _db.upsertTaskImportanceWeight(weight);
+    _weights[taskCategory] = weight;
+  }
+
+  // ----------------------------------------------------------------
   // Recording conflict outcomes
   // ----------------------------------------------------------------
 
@@ -112,6 +130,40 @@ class PreferenceLearningEngine {
     return 'Based on ${keptWeight.sampleCount} past conflicts, you\'ve '
         'typically protected $keptCategory ($keptPct% importance) '
         'over $droppedCategory ($droppedPct% importance).';
+  }
+
+  // ----------------------------------------------------------------
+  // Lead-time and voice-disable preferences
+  // ----------------------------------------------------------------
+
+  static const _kLeadTimePrefix = 'pref_lead_time_';
+  static const _kVoiceDisabledPrefix = 'pref_voice_disabled_';
+
+  /// Returns how many minutes before task start the notification should
+  /// fire for this category. Returns 0 (at task start) if not set.
+  Future<int> getLeadTimeMinutes(String taskCategory) async {
+    final raw = await _db.getSetting('$_kLeadTimePrefix$taskCategory');
+    return int.tryParse(raw ?? '') ?? 0;
+  }
+
+  /// Saves a per-category notification lead-time preference.
+  Future<void> setLeadTimeMinutes(
+      String taskCategory, int minutes) async {
+    await _db.setSetting(
+        '$_kLeadTimePrefix$taskCategory', minutes.toString());
+  }
+
+  /// Returns true if voice reminders should be suppressed for this category.
+  Future<bool> isVoiceDisabled(String taskCategory) async {
+    final raw = await _db.getSetting('$_kVoiceDisabledPrefix$taskCategory');
+    return raw == '1';
+  }
+
+  /// Saves a per-category voice-disable preference.
+  Future<void> setVoiceDisabled(
+      String taskCategory, {required bool disabled}) async {
+    await _db.setSetting(
+        '$_kVoiceDisabledPrefix$taskCategory', disabled ? '1' : '0');
   }
 
   // ----------------------------------------------------------------

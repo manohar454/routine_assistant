@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../db/database_helper.dart';
 import '../models/task.dart';
+import '../engine/preference_learning_engine.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 
@@ -13,10 +16,12 @@ class AddTaskScreen extends StatefulWidget {
   State<AddTaskScreen> createState() => _AddTaskScreenState();
 }
 
-class _AddTaskScreenState extends State<AddTaskScreen> {
+class _AddTaskScreenState extends State<AddTaskScreen>
+    with SingleTickerProviderStateMixin {
   final _nameController = TextEditingController();
   final _durationController = TextEditingController(text: '30');
   final _voiceMessageController = TextEditingController();
+  final _nameFocus = FocusNode();
 
   String _category = 'Health';
   TaskFlexibility _flexibility = TaskFlexibility.flexible;
@@ -24,24 +29,43 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   String? _moodTag;
   bool _saving = false;
 
-  final List<String> _categories = const [
+  late AnimationController _fadeCtrl;
+  late Animation<double> _fadeAnim;
+
+  static const List<String> _categories = [
     'Health',
     'Work',
+    'Study',
     'Personal',
+    'Meal',
+    'Fitness',
   ];
 
-  final List<String> _moodOptions = const [
-    'None',
-    'energetic',
-    'calm',
-    'focus',
+  static const List<({String tag, String label, IconData icon})> _moodOptions =
+      [
+    (tag: 'energetic', label: 'Energetic', icon: Icons.bolt_rounded),
+    (tag: 'calm', label: 'Calm', icon: Icons.spa_rounded),
+    (tag: 'focus', label: 'Focus', icon: Icons.center_focus_strong_rounded),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    );
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    _fadeCtrl.forward();
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _durationController.dispose();
     _voiceMessageController.dispose();
+    _nameFocus.dispose();
+    _fadeCtrl.dispose();
     super.dispose();
   }
 
@@ -49,29 +73,23 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     final picked = await showTimePicker(
       context: context,
       initialTime: _startTime,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+        child: child!,
+      ),
     );
-
-    if (picked == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _startTime = picked;
-    });
+    if (picked == null || !mounted) return;
+    setState(() => _startTime = picked);
   }
 
   Future<void> _save() async {
-    if (_nameController.text.trim().isEmpty || _saving) {
-      return;
-    }
+    final name = _nameController.text.trim();
+    if (name.isEmpty || _saving) return;
 
-    setState(() {
-      _saving = true;
-    });
+    HapticFeedback.lightImpact();
+    setState(() => _saving = true);
 
     final now = DateTime.now();
-
-    // Build today's date using the time selected by the user.
     var plannedStart = DateTime(
       now.year,
       now.month,
@@ -80,321 +98,360 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       _startTime.minute,
     );
 
-    // If that time has already passed today, interpret the user's
-    // selection as tomorrow at the same time.
-    var scheduledForTomorrow = false;
-
     if (plannedStart.isBefore(now)) {
-      plannedStart = plannedStart.add(
-        const Duration(days: 1),
-      );
-      scheduledForTomorrow = true;
+      plannedStart = plannedStart.add(const Duration(days: 1));
     }
 
+    final duration = int.tryParse(_durationController.text) ?? 30;
     final task = Task(
       id: const Uuid().v4(),
-      name: _nameController.text.trim(),
+      name: name,
       category: _category,
       plannedStart: plannedStart,
-      estimatedDurationMinutes:
-          int.tryParse(_durationController.text.trim()) ?? 30,
+      estimatedDurationMinutes: duration,
       flexibility: _flexibility,
-      voiceMessage: _voiceMessageController.text.trim().isEmpty
-          ? null
-          : _voiceMessageController.text.trim(),
-      moodTag:
-          (_moodTag == null || _moodTag == 'None') ? null : _moodTag,
+      moodTag: _moodTag,
+      voiceMessage:
+          _voiceMessageController.text.trim().isNotEmpty
+              ? _voiceMessageController.text.trim()
+              : null,
     );
 
-    String? schedulingWarning;
+    await DatabaseHelper.instance.insertTask(task);
+    // Preference extraction: user voluntarily created this category → weak positive signal
+    unawaited(PreferenceLearningEngine.instance.observeTaskCreated(_category));
 
-    try {
-      // IMPORTANT:
-      // Save the task first. Notification failure must never prevent
-      // the task from being saved.
-      await DatabaseHelper.instance.insertTask(task);
-
-      final baseId = task.id.hashCode & 0x7fffffff;
-
-      // Main task notification.
+    if (plannedStart.isAfter(DateTime.now())) {
       await NotificationService.instance.scheduleTaskReminder(
-        notificationId: baseId,
+        notificationId: task.id.hashCode,
         title: task.name,
         body: task.voiceMessage ?? 'Time for ${task.name}',
-        scheduledTime: task.plannedStart,
+        scheduledTime: plannedStart,
+        taskCategory: _category,
       );
-
-      // Check-in notification after the task duration.
-      await NotificationService.instance.scheduleCheckIn(
-        notificationId: baseId + 1,
-        taskName: task.name,
-        checkInTime: task.plannedEnd,
-      );
-
-      // Check whether exact alarms are available.
-      final exactAllowed =
-          await NotificationService.instance.canScheduleExactAlarms();
-
-      if (!exactAllowed) {
-        schedulingWarning =
-            'Task saved, but exact-alarm permission isn\'t granted yet. '
-            'Reminders may fire a few minutes late. Enable '
-            '"Alarms & reminders" for this app in your phone Settings '
-            'for precise timing.';
-      }
-    } catch (e) {
-      // The task was already saved before notification scheduling.
-      // Do not allow notification errors to break the Save operation.
-      schedulingWarning =
-          'Task saved, but there was a problem scheduling the reminder.';
     }
 
-    if (!mounted) {
-      return;
-    }
-
-    // Store the messages before leaving this screen.
-    final tomorrowMessage = scheduledForTomorrow
-        ? 'That time has passed today — scheduled for tomorrow instead.'
-        : null;
-
-    final warningMessage = schedulingWarning;
-
-    // Leave the Add Task screen.
-    Navigator.pop(context);
-
-    // NOTE:
-    // Do not try to show a SnackBar using this screen's ScaffoldMessenger
-    // after Navigator.pop(). The screen may already be disposed.
-    //
-    // The task and notification scheduling have already completed above.
-    //
-    // The important behavior is:
-    //
-    // selected 01:05 AM when it has already passed
-    //          ↓
-    // tomorrow 01:05 AM
-    //
-    // The calling screen can display a confirmation if desired.
-    debugPrint(
-      tomorrowMessage ?? '',
-    );
-
-    debugPrint(
-      warningMessage ?? '',
-    );
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final dark = context.isDark;
 
     return Scaffold(
+      backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
       appBar: AppBar(
-        leading: const BackButton(),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            20,
-            0,
-            20,
-            40,
+        backgroundColor: dark ? AppColors.darkCanvas : AppColors.canvas,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: dark ? AppColors.darkInk : AppColors.ink,
+            size: 20,
           ),
-          children: [
-            Text(
-              'New task',
-              style: textTheme.displaySmall,
-            ),
-
-            const SizedBox(height: 24),
-
-            _FieldLabel('Task name'),
-
-            TextField(
-              controller: _nameController,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                hintText: 'e.g. Evening walk',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          'New Task',
+          style: context.text.titleLarge?.copyWith(
+            color: dark ? AppColors.darkInk : AppColors.ink,
+          ),
+        ),
+        centerTitle: false,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.md),
+            child: TextButton(
+              onPressed: _saving ? null : _save,
+              style: TextButton.styleFrom(
+                backgroundColor: dark ? AppColors.darkDeep : AppColors.deep,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: 6,
+                ),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(AppRadius.pill),
+                ),
               ),
+              child: _saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      'Save',
+                      style: context.text.labelLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
             ),
+          ),
+        ],
+      ),
+      body: FadeTransition(
+        opacity: _fadeAnim,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, AppSpacing.sm, 20, 120),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Task name
+              _Section(
+                label: 'Task Name',
+                child: _NameField(
+                  controller: _nameController,
+                  focusNode: _nameFocus,
+                  dark: dark,
+                  hint: 'e.g. Morning run, Deep work…',
+                  onText: context.text,
+                ),
+              ),
 
-            const SizedBox(height: 22),
-
-            _FieldLabel('Category'),
-
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final category in _categories)
-                  _CategoryChip(
-                    label: category,
-                    selected: _category == category,
-                    onTap: () {
-                      setState(() {
-                        _category = category;
-                      });
+              // Category
+              _Section(
+                label: 'Category',
+                child: SizedBox(
+                  height: 40,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _categories.length,
+                    separatorBuilder: (_, __) =>
+                        const SizedBox(width: AppSpacing.sm),
+                    itemBuilder: (context, i) {
+                      final cat = _categories[i];
+                      return _CategoryChip(
+                        label: cat,
+                        selected: _category == cat,
+                        dark: dark,
+                        onText: context.text,
+                        onTap: () => setState(() => _category = cat),
+                      );
                     },
                   ),
-              ],
-            ),
-
-            const SizedBox(height: 22),
-
-            _FieldLabel('Start time & duration'),
-
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _pickTime,
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 16,
-                      ),
-                      side: const BorderSide(
-                        color: AppColors.mist,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: Text(
-                      _startTime.format(context),
-                      style: const TextStyle(
-                        color: AppColors.ink,
-                      ),
-                    ),
-                  ),
                 ),
+              ),
 
-                const SizedBox(width: 12),
-
-                SizedBox(
-                  width: 100,
-                  child: TextField(
-                    controller: _durationController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      suffixText: 'min',
+              // Time + Duration row
+              _Section(
+                label: 'Time',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _InfoTile(
+                        icon: Icons.access_time_rounded,
+                        label: 'Start time',
+                        value: _startTime.format(context),
+                        dark: dark,
+                        onText: context.text,
+                        onTap: _pickTime,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: _DurationField(
+                        controller: _durationController,
+                        dark: dark,
+                        onText: context.text,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 22),
-
-            _FieldLabel('Flexibility'),
-
-            _FlexibilitySegment(
-              value: _flexibility,
-              onChanged: (value) {
-                setState(() {
-                  _flexibility = value;
-                });
-              },
-            ),
-
-            const SizedBox(height: 22),
-
-            _FieldLabel('Music mood (optional)'),
-
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final mood in _moodOptions)
-                  _CategoryChip(
-                    label: mood,
-                    selected: (_moodTag ?? 'None') == mood,
-                    onTap: () {
-                      setState(() {
-                        _moodTag = mood;
-                      });
-                    },
-                  ),
-              ],
-            ),
-
-            const SizedBox(height: 6),
-
-            Text(
-              'Auto-plays a matching playlist when this task starts',
-              style: textTheme.bodyMedium,
-            ),
-
-            const SizedBox(height: 22),
-
-            _FieldLabel('Voice reminder (optional)'),
-
-            TextField(
-              controller: _voiceMessageController,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                hintText: 'Boss, time for your evening walk',
               ),
-            ),
 
-            const SizedBox(height: 6),
-
-            Text(
-              'Leave blank for a default message',
-              style: textTheme.bodyMedium,
-            ),
-
-            const SizedBox(height: 28),
-
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _saving ? null : _save,
-                child: _saving
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('Save task'),
+              // Flexibility
+              _Section(
+                label: 'Schedule Type',
+                child: _FlexibilitySegment(
+                  value: _flexibility,
+                  dark: dark,
+                  onText: context.text,
+                  onChanged: (v) => setState(() => _flexibility = v),
+                ),
               ),
-            ),
-          ],
+
+              // Mood tag
+              _Section(
+                label: 'Mood Tag',
+                sublabel: 'Links music & energy to this task',
+                child: Row(
+                  children: [
+                    // "None" option
+                    GestureDetector(
+                      onTap: () => setState(() => _moodTag = null),
+                      child: _MoodChip(
+                        label: 'None',
+                        icon: Icons.block_rounded,
+                        selected: _moodTag == null,
+                        color: dark ? AppColors.darkBorder : AppColors.mist,
+                        dark: dark,
+                        onText: context.text,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    ..._moodOptions.map((m) => Padding(
+                          padding:
+                              const EdgeInsets.only(right: AppSpacing.sm),
+                          child: GestureDetector(
+                            onTap: () =>
+                                setState(() => _moodTag = m.tag),
+                            child: _MoodChip(
+                              label: m.label,
+                              icon: m.icon,
+                              selected: _moodTag == m.tag,
+                              color: AppColors.amber,
+                              dark: dark,
+                              onText: context.text,
+                            ),
+                          ),
+                        )),
+                  ],
+                ),
+              ),
+
+              // Voice reminder
+              _Section(
+                label: 'Voice Reminder',
+                sublabel: 'Spoken aloud when task starts',
+                child: _VoiceField(
+                  controller: _voiceMessageController,
+                  dark: dark,
+                  onText: context.text,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _FieldLabel extends StatelessWidget {
-  final String text;
+// ─── Section wrapper ────────────────────────────────────────────────────────
 
-  const _FieldLabel(this.text);
+class _Section extends StatelessWidget {
+  final String label;
+  final String? sublabel;
+  final Widget child;
+
+  const _Section({
+    required this.label,
+    required this.child,
+    this.sublabel,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final dark = context.isDark;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall,
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: context.text.labelMedium?.copyWith(
+              color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+          if (sublabel != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              sublabel!,
+              style: context.text.labelSmall?.copyWith(
+                color: (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)
+                    .withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+          child,
+        ],
       ),
     );
   }
 }
 
-class _CategoryChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+// ─── Name field ─────────────────────────────────────────────────────────────
 
-  const _CategoryChip({
+class _NameField extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool dark;
+  final String hint;
+  final TextTheme onText;
+
+  const _NameField({
+    required this.controller,
+    required this.focusNode,
+    required this.dark,
+    required this.hint,
+    required this.onText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      focusNode: focusNode,
+      autofocus: true,
+      style: onText.bodyLarge?.copyWith(
+        color: dark ? AppColors.darkInk : AppColors.ink,
+        fontWeight: FontWeight.w600,
+      ),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: onText.bodyLarge?.copyWith(
+          color: (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)
+              .withValues(alpha: 0.5),
+        ),
+        filled: true,
+        fillColor: dark ? AppColors.darkCard : AppColors.cardSurface,
+        border: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(AppRadius.md),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          borderSide: BorderSide(
+            color: dark ? AppColors.darkDeep : AppColors.deep,
+            width: 1.5,
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm + 4,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Info tile (tappable card) ───────────────────────────────────────────────
+
+class _InfoTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool dark;
+  final TextTheme onText;
+  final VoidCallback? onTap;
+
+  const _InfoTile({
+    required this.icon,
     required this.label,
-    required this.selected,
-    required this.onTap,
+    required this.value,
+    required this.dark,
+    required this.onText,
+    this.onTap,
   });
 
   @override
@@ -403,28 +460,174 @@ class _CategoryChip extends StatelessWidget {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 9,
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm + 4,
+        ),
+        decoration: BoxDecoration(
+          color: dark ? AppColors.darkCard : AppColors.cardSurface,
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          border: Border.all(
+            color: dark ? AppColors.darkBorder : AppColors.mist,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: dark ? AppColors.darkDeep : AppColors.deep,
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: onText.labelSmall?.copyWith(
+                    color: dark
+                        ? AppColors.darkInkSubtle
+                        : AppColors.inkSubtle,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: onText.labelLarge?.copyWith(
+                    color: dark ? AppColors.darkInk : AppColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Duration field ──────────────────────────────────────────────────────────
+
+class _DurationField extends StatelessWidget {
+  final TextEditingController controller;
+  final bool dark;
+  final TextTheme onText;
+
+  const _DurationField({
+    required this.controller,
+    required this.dark,
+    required this.onText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + 4,
+      ),
+      decoration: BoxDecoration(
+        color: dark ? AppColors.darkCard : AppColors.cardSurface,
+        borderRadius: const BorderRadius.all(AppRadius.md),
+        border: Border.all(
+          color: dark ? AppColors.darkBorder : AppColors.mist,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.timer_outlined,
+            size: 16,
+            color: dark ? AppColors.darkDeep : AppColors.deep,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Duration',
+                style: onText.labelSmall?.copyWith(
+                  color:
+                      dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                ),
+              ),
+              SizedBox(
+                width: 60,
+                child: TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  style: onText.labelLarge?.copyWith(
+                    color: dark ? AppColors.darkInk : AppColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    border: InputBorder.none,
+                    suffix: Text(
+                      ' min',
+                      style: onText.labelSmall?.copyWith(
+                        color: dark
+                            ? AppColors.darkInkSubtle
+                            : AppColors.inkSubtle,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Category chip ───────────────────────────────────────────────────────────
+
+class _CategoryChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final bool dark;
+  final TextTheme onText;
+  final VoidCallback onTap;
+
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.dark,
+    required this.onText,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: 10,
         ),
         decoration: BoxDecoration(
           color: selected
-              ? AppColors.deep
-              : AppColors.cardSurface,
+              ? (dark ? AppColors.darkDeep : AppColors.deep)
+              : (dark ? AppColors.darkCard : AppColors.cardSurface),
+          borderRadius: const BorderRadius.all(AppRadius.pill),
           border: Border.all(
             color: selected
-                ? AppColors.deep
-                : AppColors.mist,
+                ? (dark ? AppColors.darkDeep : AppColors.deep)
+                : (dark ? AppColors.darkBorder : AppColors.mist),
           ),
-          borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           label,
-          style: TextStyle(
+          style: onText.labelMedium?.copyWith(
             fontWeight: FontWeight.w600,
-            fontSize: 13,
             color: selected
-                ? AppColors.canvas
-                : AppColors.deepLight,
+                ? Colors.white
+                : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
           ),
         ),
       ),
@@ -432,12 +635,18 @@ class _CategoryChip extends StatelessWidget {
   }
 }
 
+// ─── Flexibility segment ─────────────────────────────────────────────────────
+
 class _FlexibilitySegment extends StatelessWidget {
   final TaskFlexibility value;
+  final bool dark;
+  final TextTheme onText;
   final ValueChanged<TaskFlexibility> onChanged;
 
   const _FlexibilitySegment({
     required this.value,
+    required this.dark,
+    required this.onText,
     required this.onChanged,
   });
 
@@ -446,59 +655,165 @@ class _FlexibilitySegment extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppColors.cardSurface,
+        color: dark ? AppColors.darkCard : AppColors.cardSurface,
+        borderRadius: const BorderRadius.all(AppRadius.md),
         border: Border.all(
-          color: AppColors.mist,
+          color: dark ? AppColors.darkBorder : AppColors.mist,
         ),
-        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
-        children: [
-          Expanded(
-            child: _segmentButton(
-              'Flexible',
-              TaskFlexibility.flexible,
+        children: TaskFlexibility.values.map((flex) {
+          final selected = value == flex;
+          final label =
+              flex == TaskFlexibility.flexible ? 'Flexible' : 'Fixed';
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => onChanged(flex),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? (dark ? AppColors.darkDeep : AppColors.deep)
+                      : Colors.transparent,
+                  borderRadius: const BorderRadius.all(AppRadius.sm),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  label,
+                  style: onText.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: selected
+                        ? Colors.white
+                        : (dark
+                            ? AppColors.darkInkSubtle
+                            : AppColors.inkSubtle),
+                  ),
+                ),
+              ),
             ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ─── Mood chip ───────────────────────────────────────────────────────────────
+
+class _MoodChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final Color color;
+  final bool dark;
+  final TextTheme onText;
+
+  const _MoodChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.color,
+    required this.dark,
+    required this.onText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm + 4,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: selected
+            ? color.withValues(alpha: 0.15)
+            : (dark ? AppColors.darkCard : AppColors.cardSurface),
+        borderRadius: const BorderRadius.all(AppRadius.pill),
+        border: Border.all(
+          color: selected
+              ? color.withValues(alpha: 0.6)
+              : (dark ? AppColors.darkBorder : AppColors.mist),
+          width: selected ? 1.5 : 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: selected
+                ? color
+                : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
           ),
-          Expanded(
-            child: _segmentButton(
-              'Fixed',
-              TaskFlexibility.fixed,
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: onText.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: selected
+                  ? color
+                  : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _segmentButton(
-    String label,
-    TaskFlexibility flexibility,
-  ) {
-    final selected = value == flexibility;
+// ─── Voice field ──────────────────────────────────────────────────────────────
 
-    return GestureDetector(
-      onTap: () => onChanged(flexibility),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          vertical: 10,
+class _VoiceField extends StatelessWidget {
+  final TextEditingController controller;
+  final bool dark;
+  final TextTheme onText;
+
+  const _VoiceField({
+    required this.controller,
+    required this.dark,
+    required this.onText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      maxLines: 2,
+      style: onText.bodyMedium?.copyWith(
+        color: dark ? AppColors.darkInk : AppColors.ink,
+      ),
+      decoration: InputDecoration(
+        hintText: 'Optional spoken reminder…',
+        hintStyle: onText.bodyMedium?.copyWith(
+          color: (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)
+              .withValues(alpha: 0.5),
         ),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.deep
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+        prefixIcon: Icon(
+          Icons.record_voice_over_rounded,
+          color: dark ? AppColors.darkMoss : AppColors.moss,
+          size: 18,
         ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-            color: selected
-                ? AppColors.canvas
-                : AppColors.deepLight,
+        filled: true,
+        fillColor: dark ? AppColors.darkCard : AppColors.cardSurface,
+        border: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(AppRadius.md),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: const BorderRadius.all(AppRadius.md),
+          borderSide: BorderSide(
+            color: dark ? AppColors.darkMoss : AppColors.moss,
+            width: 1.5,
           ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm + 4,
         ),
       ),
     );
