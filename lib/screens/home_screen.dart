@@ -24,6 +24,7 @@ import 'meal_tracker_screen.dart';
 import 'goal_progress_screen.dart';
 import 'analytics_screen.dart';
 import 'daily_report_screen.dart';
+import 'llm_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -545,7 +546,26 @@ class _Header extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 16),
-        _ProgressRing(ratio: progressRatio, isDark: isDark),
+        Column(
+          children: [
+            _ProgressRing(ratio: progressRatio, isDark: isDark),
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const LlmSettingsScreen()),
+              ),
+              child: Icon(
+                Icons.auto_awesome_rounded,
+                size: 16,
+                color: isDark
+                    ? AppColors.darkInkSubtle
+                    : AppColors.inkSubtle,
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }

@@ -61,22 +61,29 @@ class RescheduleEngine {
 
   Future<void> _rescheduleNotificationsFor(Task task) async {
     final baseId = task.id.hashCode & 0x7fffffff;
+    final now = DateTime.now();
 
     await notifications.cancel(baseId);
     await notifications.cancel(baseId + 1);
 
-    await notifications.scheduleTaskReminder(
-      notificationId: baseId,
-      title: task.name,
-      body: task.voiceMessage ?? 'Time for ${task.name}',
-      scheduledTime: task.plannedStart,
-    );
+    // Guard: never schedule notifications in the past.
+    if (task.plannedStart.isAfter(now)) {
+      await notifications.scheduleTaskReminder(
+        notificationId: baseId,
+        title: task.name,
+        body: task.voiceMessage ?? 'Time for ${task.name}',
+        scheduledTime: task.plannedStart,
+        taskCategory: task.category,
+      );
+    }
 
-    await notifications.scheduleCheckIn(
-      notificationId: baseId + 1,
-      taskName: task.name,
-      checkInTime: task.plannedEnd,
-    );
+    if (task.plannedEnd.isAfter(now)) {
+      await notifications.scheduleCheckIn(
+        notificationId: baseId + 1,
+        taskName: task.name,
+        checkInTime: task.plannedEnd,
+      );
+    }
   }
 
   Future<void> markCompleted(Task task, {DateTime? actualEnd}) async {
