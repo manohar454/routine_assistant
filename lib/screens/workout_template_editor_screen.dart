@@ -619,7 +619,7 @@ class _RestDayToggle extends StatelessWidget {
         contentPadding:
             const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 2),
         value: value,
-        activeColor: dark ? AppColors.darkAmber : AppColors.amber,
+        activeThumbColor: dark ? AppColors.darkAmber : AppColors.amber,
         onChanged: onChanged,
         title: Text('Rest day',
             style: text.bodyMedium?.copyWith(
