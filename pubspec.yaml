@@ -23,6 +23,9 @@ dependencies:
   flutter_foreground_task: ^8.10.0         # keeps workout timer alive in background, free
   flutter_gemma: ^1.9.0                    # on-device LLM runtime (Feature E)
   flutter_gemma_litertlm: ^1.5.0          # LiteRT inference engine for Gemma 3 1B
+  sensors_plus: ^6.0.0                    # accelerometer for motion/activity sensing (Phase 3)
+  device_calendar: ^4.3.0                 # read device calendar events for density signal (Phase 3)
+  permission_handler: ^11.3.0             # runtime permissions for calendar + activity (Phase 3)
 
 dev_dependencies:
   flutter_lints: ^6.0.0

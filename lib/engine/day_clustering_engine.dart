@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import '../db/database_helper.dart';
 import '../models/day_clustering_models.dart';
+import '../services/calendar_service.dart';
 
 /// The day-type clustering engine. Runs lightweight k-means on your
 /// accumulated DayVectors to discover recurring day archetypes, then
@@ -53,10 +54,9 @@ class DayClusteringEngine {
         ? 0.5
         : (completedTasksYesterday / scheduledTasksYesterday).clamp(0.0, 1.0);
 
-    // Calendar density — placeholder 0.3 (moderate) until calendar
-    // integration is built in Phase 3. Using a neutral value here
-    // means it doesn't unfairly skew clustering either way.
-    const calendarDensity = 0.3;
+    // Calendar density — real value from device calendar (Phase 3).
+    // Falls back to 0.3 if permission is denied or no calendar found.
+    final calendarDensity = await CalendarService.instance.todayDensity();
 
     final vector = DayVector(
       id: const Uuid().v4(),

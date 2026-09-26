@@ -25,6 +25,7 @@ import 'goal_progress_screen.dart';
 import 'analytics_screen.dart';
 import 'daily_report_screen.dart';
 import 'llm_settings_screen.dart';
+import 'reasoning_trace_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -440,6 +441,11 @@ class _HomeScreenState extends State<HomeScreen>
                         MaterialPageRoute(
                             builder: (_) => const DailyReportScreen()),
                       ),
+                      onDecisionLog: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const ReasoningTraceScreen()),
+                      ),
                     ),
                   ),
                 ),
@@ -667,6 +673,7 @@ class _QuickActions extends StatelessWidget {
   final VoidCallback onGoals;
   final VoidCallback onAnalytics;
   final VoidCallback onDailyReport;
+  final VoidCallback onDecisionLog;
 
   const _QuickActions({
     required this.waterMl,
@@ -683,6 +690,7 @@ class _QuickActions extends StatelessWidget {
     required this.onGoals,
     required this.onAnalytics,
     required this.onDailyReport,
+    required this.onDecisionLog,
   });
 
   @override
@@ -734,6 +742,15 @@ class _QuickActions extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+        // Decision log card
+        _NavCard(
+          icon: Icons.history_rounded,
+          label: 'Decision Log',
+          sub: 'Why the AI rescheduled',
+          isDark: isDark,
+          onTap: onDecisionLog,
         ),
         const SizedBox(height: 12),
         // 3-stat row

@@ -15,6 +15,11 @@
     <!-- Allows the device to wake for scheduled work -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Phase 3: read device calendar for density signal -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
+    <!-- Phase 3: accelerometer for motion sensing (no permission needed on Android) -->
+
     <application
         android:name="${applicationName}"
         android:label="routine_assistant"
