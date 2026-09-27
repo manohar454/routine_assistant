@@ -49,7 +49,8 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
 
   // ── Escalating intensity ──
   int _escalationLevel = 0; // 0=soft, 1=medium, 2=intense, 3=critical
-  Timer? _escalationTimer;
+  Timer? _escalationTimer;         // repeated vibration timer (level 2+)
+  final List<Timer> _escalationSteps = []; // one-shot step timers (cancelable)
   bool _vibrating = false;
 
   // ── Animation ──
@@ -120,6 +121,10 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
     _shakeCtrl.dispose();
     _clockTimer.cancel();
     _escalationTimer?.cancel();
+    for (final t in _escalationSteps) {
+      t.cancel();
+    }
+    _escalationSteps.clear();
     _inputController.dispose();
     _player?.dispose();
     super.dispose();
@@ -128,12 +133,11 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
   // ── Escalation logic ─────────────────────────────────────────────────────
 
   void _scheduleEscalation() {
-    // Level 1 after 2 min: medium (louder TTS repeat)
-    Future.delayed(const Duration(minutes: 2), () => _escalate(1));
-    // Level 2 after 5 min: intense (repeated vibration + faster pulse)
-    Future.delayed(const Duration(minutes: 5), () => _escalate(2));
-    // Level 3 after 10 min: critical (shake animation + very loud TTS)
-    Future.delayed(const Duration(minutes: 10), () => _escalate(3));
+    // Store timers so dispose() can cancel them if alarm is dismissed early.
+    _escalationSteps
+      ..add(Timer(const Duration(minutes: 2),  () => _escalate(1)))
+      ..add(Timer(const Duration(minutes: 5),  () => _escalate(2)))
+      ..add(Timer(const Duration(minutes: 10), () => _escalate(3)));
   }
 
   Future<void> _escalate(int level) async {

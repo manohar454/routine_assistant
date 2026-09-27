@@ -251,12 +251,17 @@ class RoutineConfirmationService {
     return log != null && log['confirmedAt'] != null;
   }
 
-  void dispose() {
+  /// Cancel all pending follow-up timers.
+  /// Call before re-arming (e.g. when scheduleAll is called again after a
+  /// timetable edit) to prevent duplicate onReminderFired callbacks.
+  void cancelAllFollowUpTimers() {
     for (final t in _followUpTimers.values) {
       t.cancel();
     }
     _followUpTimers.clear();
   }
+
+  void dispose() => cancelAllFollowUpTimers();
 }
 
 // ── Confirmation Bottom Sheet ─────────────────────────────────────────────────

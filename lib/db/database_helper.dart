@@ -71,12 +71,6 @@ class DatabaseHelper {
         await _createRoutineLogsTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 13) {
-          await _createRoutineTable(db);
-        }
-        if (oldVersion < 14) {
-          await _createRoutineLogsTable(db);
-        }
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE tasks ADD COLUMN moodTag TEXT');
           await db.execute('''
@@ -226,6 +220,12 @@ class DatabaseHelper {
         }
         if (oldVersion < 12) {
           await _createGoalTables(db);
+        }
+        if (oldVersion < 13) {
+          await _createRoutineTable(db);
+        }
+        if (oldVersion < 14) {
+          await _createRoutineLogsTable(db);
         }
       },
     );

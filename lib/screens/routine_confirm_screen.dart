@@ -38,6 +38,7 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
 
   Future<void> _speakPrompt() async {
     if (_ttsSpoken) return;
+    if (!mounted) return;
     _ttsSpoken = true;
     final type = widget.entry.type;
     String prompt;

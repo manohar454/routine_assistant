@@ -39,14 +39,17 @@ class RoutineAlarmService {
     final entries = await _db.getRoutineEntriesForToday();
     // Cancel existing routine notifications first.
     await _cancelAllRoutineNotifications();
+    // Cancel all pending follow-up timers before rearming — prevents duplicates
+    // when scheduleAll is called more than once (e.g. after timetable edit).
+    RoutineConfirmationService.instance.cancelAllFollowUpTimers();
+
     for (int i = 0; i < entries.length; i++) {
       await _schedule(entries[i], notifId: _baseId + i);
     }
-    // Register confirmation follow-up tracking for entries that fire today
+    // Re-arm confirmation follow-up tracking for entries that haven't fired yet.
     final now = DateTime.now();
     final nowMinutes = now.hour * 60 + now.minute;
     for (final entry in entries) {
-      // Only arm the follow-up for entries that haven't fired yet
       if (entry.timeOfDayMinutes > nowMinutes) {
         final fireAt = DateTime(
           now.year, now.month, now.day,
@@ -88,7 +91,8 @@ class RoutineAlarmService {
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   Future<void> _cancelAllRoutineNotifications() async {
-    for (int i = 0; i < 200; i++) {
+    // Range must match the max entries ever schedulable (up to 1000).
+    for (int i = 0; i < 1000; i++) {
       await _plugin.cancel(_baseId + i);
     }
   }

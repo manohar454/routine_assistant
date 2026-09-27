@@ -8,6 +8,7 @@ import '../engine/preference_learning_engine.dart';
 import '../db/database_helper.dart';
 import '../models/routine_models.dart';
 import '../screens/wake_alarm_screen.dart';
+import '../screens/routine_confirm_screen.dart';
 
 /// Global navigator key — allows notification taps to push routes
 /// without a BuildContext.
@@ -27,25 +28,28 @@ void _onNotificationTap(NotificationResponse response) {
 
 void _handleNotificationPayload(String? payload) {
   if (payload == null) return;
-  if (!payload.startsWith('routine:')) return;
+  // Accept both 'routine:' and 'missed:' prefixes
+  final isRoutine = payload.startsWith('routine:');
+  final isMissed  = payload.startsWith('missed:');
+  if (!isRoutine && !isMissed) return;
 
   final parts = payload.split(':');
   if (parts.length < 3) return;
 
-  final entryId = parts[1];
+  final entryId  = parts[1];
   final typeName = parts[2];
 
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     final navigator = routineNavigatorKey.currentState;
     if (navigator == null) return;
 
-    if (typeName == 'wakeUp') {
+    if (isRoutine && typeName == 'wakeUp') {
       final entry = await DatabaseHelper.instance.getRoutineEntry(entryId);
       navigator.push(MaterialPageRoute(
         builder: (_) => WakeAlarmScreen(entry: entry),
       ));
-    } else if (payload.startsWith('routine:') || payload.startsWith('missed:')) {
-      // Open confirm sheet for any routine reminder tap
+    } else {
+      // All other routine + all missed payloads → confirm screen
       final entry = await DatabaseHelper.instance.getRoutineEntry(entryId);
       if (entry != null) {
         navigator.push(MaterialPageRoute(
@@ -113,7 +117,54 @@ class NotificationService {
       onDidReceiveBackgroundNotificationResponse: _onNotificationTapBackground,
     );
 
+    // Explicitly create all notification channels used by this app.
+    // Android 8+ silently drops notifications on unregistered channels.
+    await _createAndroidChannels();
+
     await _requestAndroidPermissions();
+  }
+
+  Future<void> _createAndroidChannels() async {
+    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin == null) return;
+
+    const channels = [
+      AndroidNotificationChannel(
+        'routine_channel',
+        'Routine Reminders',
+        description: 'Voice-linked task reminders',
+        importance: Importance.max,
+      ),
+      AndroidNotificationChannel(
+        'routine_companion',
+        'Routine Companion',
+        description: 'Daily routine voice reminders',
+        importance: Importance.max,
+      ),
+      AndroidNotificationChannel(
+        'routine_wake_alarm',
+        'Wake Alarm',
+        description: 'Hard-to-dismiss morning wake-up alarm',
+        importance: Importance.max,
+      ),
+      AndroidNotificationChannel(
+        'routine_missed',
+        'Missed Routine Reminders',
+        description: 'Alerts for unconfirmed routine tasks',
+        importance: Importance.high,
+      ),
+      AndroidNotificationChannel(
+        'routine_rescheduled',
+        'Rescheduled Routine',
+        description: 'Your rescheduled routine reminders',
+        importance: Importance.high,
+      ),
+    ];
+
+    for (final ch in channels) {
+      await androidPlugin.createNotificationChannel(ch);
+    }
   }
 
   /// Android 13+ requires runtime notification permission.
@@ -332,7 +383,8 @@ class NotificationService {
       playSound: true,
     );
     const details = NotificationDetails(android: androidDetails);
-    final notifId = 4000 + entry.hashCode.abs() % 1000;
+    // Use stable ID derived from entry.id string to avoid hashCode collisions.
+    final notifId = 4000 + entry.id.hashCode.abs() % 1000;
     await _plugin.show(
       notifId,
       '${entry.type.emoji} Missed: ${entry.label}',
@@ -362,7 +414,7 @@ class NotificationService {
       priority: Priority.high,
     );
     const details = NotificationDetails(android: androidDetails);
-    final notifId = 5000 + entry.hashCode.abs() % 1000;
+    final notifId = 5000 + entry.id.hashCode.abs() % 1000;
 
     try {
       await _plugin.zonedSchedule(
