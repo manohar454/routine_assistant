@@ -109,9 +109,7 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
     final theme = Theme.of(context);
     final isMeal = widget.entry.type.isMeal;
     final isWater = widget.entry.type.isWater;
-    final presets = widget.entry.type == RoutineEntryType.snacks
-        ? RoutineConfirmationService.snackPresets
-        : RoutineConfirmationService.messFoodPresets;
+    final presets = RoutineConfirmationService.messFoodPresets;
     final suggestions = _svc.suggestRescheduleTimes(widget.entry);
 
     return Scaffold(

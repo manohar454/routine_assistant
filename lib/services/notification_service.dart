@@ -43,7 +43,7 @@ void _handleNotificationPayload(String? payload) {
     final navigator = routineNavigatorKey.currentState;
     if (navigator == null) return;
 
-    if (isRoutine && typeName == 'wakeUp') {
+    if (isRoutine && typeName == 'wake') {
       final entry = await DatabaseHelper.instance.getRoutineEntry(entryId);
       navigator.push(MaterialPageRoute(
         builder: (_) => WakeAlarmScreen(entry: entry),

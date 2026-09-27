@@ -99,7 +99,7 @@ class RoutineAlarmService {
 
   Future<void> _schedule(RoutineEntry entry, {required int notifId}) async {
     final fireAt = _nextFireTime(entry.timeOfDayMinutes);
-    final isWake = entry.type == RoutineEntryType.wakeUp;
+    final isWake = entry.type == RoutineEntryType.wake;
 
     final androidDetails = AndroidNotificationDetails(
       isWake ? _wakeChannelId : _routineChannelId,

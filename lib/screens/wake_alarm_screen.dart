@@ -248,7 +248,7 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
     if (_ttsSpoken) return;
     _ttsSpoken = true;
     final msg = widget.entry?.message ??
-        RoutineEntryType.wakeUp.defaultMessage();
+        RoutineEntryType.wake.defaultMessage();
     await TtsService.instance.speak(msg);
   }
 

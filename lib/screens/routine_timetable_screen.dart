@@ -109,10 +109,10 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
     final roundedMin = ((rawMin + 2) ~/ 5) * 5; // round to nearest 5
     final entry = RoutineEntry(
       id: const Uuid().v4(),
-      type: RoutineEntryType.custom,
+      type: RoutineEntryType.reminder,
       timeOfDayMinutes: roundedMin,
       label: 'Custom Reminder',
-      message: RoutineEntryType.custom.defaultMessage(),
+      message: RoutineEntryType.reminder.defaultMessage(),
     );
     setState(() {
       _entries.add(entry);
@@ -167,19 +167,13 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
   Future<void> _resetToDefaults() async {
     final db = DatabaseHelper.instance;
     final waterGoal = int.tryParse(
-            await db.getSetting('routine_waterGoalMl') ?? '') ?? 5000;
+            await db.getSetting('routine_waterGoalMl') ?? '') ?? 3000;
     final workoutDur = int.tryParse(
             await db.getSetting('routine_workoutDurationMinutes') ?? '') ?? 45;
-    final napDur = int.tryParse(
-            await db.getSetting('routine_napDurationMinutes') ?? '') ?? 30;
-    final studyDur = int.tryParse(
-            await db.getSetting('routine_studyDurationMinutes') ?? '') ?? 60;
 
     final defaults = DefaultRoutineTimetable.build(
       waterGoalMl: waterGoal,
       workoutDurationMinutes: workoutDur,
-      napDurationMinutes: napDur,
-      studyDurationMinutes: studyDur,
     );
     setState(() {
       _entries = defaults;
@@ -192,7 +186,7 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
 
   void _testWakeAlarm() {
     final wakeEntry = _entries
-        .where((e) => e.type == RoutineEntryType.wakeUp)
+        .where((e) => e.type == RoutineEntryType.wake)
         .firstOrNull;
     Navigator.push(
       context,
@@ -398,31 +392,17 @@ class _EntryCard extends StatelessWidget {
       return dark ? AppColors.darkSurface : AppColors.mist.withValues(alpha: 0.5);
     }
     switch (entry.type) {
-      case RoutineEntryType.wakeUp:
+      case RoutineEntryType.wake:
         return dark ? const Color(0xFF2A2010) : AppColors.amberLight;
-      case RoutineEntryType.workout:
-      case RoutineEntryType.gym:
+      case RoutineEntryType.activity:
         return dark ? const Color(0xFF0E2420) : AppColors.mossLight;
-      case RoutineEntryType.breakfast:
-      case RoutineEntryType.lunch:
-      case RoutineEntryType.dinner:
-      case RoutineEntryType.postGymProtein:
+      case RoutineEntryType.meal:
         return dark ? const Color(0xFF1C1218) : AppColors.clayLight;
-      case RoutineEntryType.morningWater:
-      case RoutineEntryType.waterReminder:
-      case RoutineEntryType.postWorkoutWater:
+      case RoutineEntryType.hydration:
         return dark ? const Color(0xFF0C1E28) : const Color(0xFFE3F2FD);
-      case RoutineEntryType.bedtimePrep:
+      case RoutineEntryType.wind:
         return dark ? const Color(0xFF12101E) : const Color(0xFFEDE7F6);
-      case RoutineEntryType.study:
-        return dark ? const Color(0xFF0E1828) : const Color(0xFFE8F0FE);
-      case RoutineEntryType.nap:
-        return dark ? const Color(0xFF12101E) : const Color(0xFFF3E5F5);
-      case RoutineEntryType.college:
-        return dark ? const Color(0xFF0A1A14) : const Color(0xFFE8F5E9);
-      case RoutineEntryType.snacks:
-        return dark ? const Color(0xFF1A1508) : const Color(0xFFFFF8E1);
-      case RoutineEntryType.custom:
+      case RoutineEntryType.reminder:
         return dark ? AppColors.darkCard : AppColors.cardSurface;
     }
   }
@@ -907,8 +887,6 @@ class _TimetableSettingsSheet extends StatefulWidget {
 class _TimetableSettingsSheetState extends State<_TimetableSettingsSheet> {
   final _waterCtrl    = TextEditingController();
   final _workoutCtrl  = TextEditingController();
-  final _napCtrl      = TextEditingController();
-  final _studyCtrl    = TextEditingController();
   bool _saving = false;
 
   @override
@@ -921,14 +899,10 @@ class _TimetableSettingsSheetState extends State<_TimetableSettingsSheet> {
     final db = DatabaseHelper.instance;
     final water   = await db.getSetting('routine_waterGoalMl');
     final workout = await db.getSetting('routine_workoutDurationMinutes');
-    final nap     = await db.getSetting('routine_napDurationMinutes');
-    final study   = await db.getSetting('routine_studyDurationMinutes');
     if (!mounted) return;
     setState(() {
-      _waterCtrl.text   = water   ?? '5000';
+      _waterCtrl.text   = water   ?? '3000';
       _workoutCtrl.text = workout ?? '45';
-      _napCtrl.text     = nap     ?? '30';
-      _studyCtrl.text   = study   ?? '60';
     });
   }
 
@@ -936,13 +910,9 @@ class _TimetableSettingsSheetState extends State<_TimetableSettingsSheet> {
     setState(() => _saving = true);
     final db = DatabaseHelper.instance;
     await db.setSetting('routine_waterGoalMl',
-        '${int.tryParse(_waterCtrl.text) ?? 5000}');
+        '${int.tryParse(_waterCtrl.text) ?? 3000}');
     await db.setSetting('routine_workoutDurationMinutes',
         '${int.tryParse(_workoutCtrl.text) ?? 45}');
-    await db.setSetting('routine_napDurationMinutes',
-        '${int.tryParse(_napCtrl.text) ?? 30}');
-    await db.setSetting('routine_studyDurationMinutes',
-        '${int.tryParse(_studyCtrl.text) ?? 60}');
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -987,8 +957,6 @@ class _TimetableSettingsSheetState extends State<_TimetableSettingsSheet> {
   void dispose() {
     _waterCtrl.dispose();
     _workoutCtrl.dispose();
-    _napCtrl.dispose();
-    _studyCtrl.dispose();
     super.dispose();
   }
 
@@ -1069,31 +1037,7 @@ class _TimetableSettingsSheetState extends State<_TimetableSettingsSheet> {
                     controller: _workoutCtrl,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: 'Morning workout duration',
-                      suffixText: 'min',
-                      border: inputBorder,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Nap duration
-                  TextField(
-                    controller: _napCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Afternoon nap duration',
-                      suffixText: 'min',
-                      border: inputBorder,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Study duration
-                  TextField(
-                    controller: _studyCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Study session duration',
+                      labelText: 'Default workout duration',
                       suffixText: 'min',
                       border: inputBorder,
                     ),

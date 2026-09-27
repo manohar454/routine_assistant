@@ -42,20 +42,12 @@ class RoutineConfirmationService {
   // Grace period before follow-up (minutes per type)
   static int gracePeriodMinutes(RoutineEntryType type) {
     switch (type) {
-      case RoutineEntryType.wakeUp:        return 10;
-      case RoutineEntryType.breakfast:
-      case RoutineEntryType.lunch:
-      case RoutineEntryType.dinner:        return 20;
-      case RoutineEntryType.waterReminder:
-      case RoutineEntryType.morningWater:
-      case RoutineEntryType.postWorkoutWater: return 8;
-      case RoutineEntryType.workout:
-      case RoutineEntryType.gym:           return 5;
-      case RoutineEntryType.nap:           return 5;
-      case RoutineEntryType.study:         return 5;
-      case RoutineEntryType.college:       return 5;
-      case RoutineEntryType.snacks:        return 15;
-      default:                             return 10;
+      case RoutineEntryType.wake:      return 10;
+      case RoutineEntryType.meal:      return 20;
+      case RoutineEntryType.hydration: return 8;
+      case RoutineEntryType.activity:  return 5;
+      case RoutineEntryType.wind:      return 15;
+      case RoutineEntryType.reminder:  return 10;
     }
   }
 
@@ -105,28 +97,20 @@ class RoutineConfirmationService {
 
   String _missedMessage(RoutineEntry entry) {
     switch (entry.type) {
-      case RoutineEntryType.wakeUp:
-        return "Boss! It's time to wake up. You haven't confirmed yet. "
-            "Get up now — champions don't sleep in!";
-      case RoutineEntryType.breakfast:
-      case RoutineEntryType.lunch:
-      case RoutineEntryType.dinner:
-        return "Boss, did you eat your ${entry.label.toLowerCase()}? "
-            "Please confirm or reschedule.";
-      case RoutineEntryType.waterReminder:
-      case RoutineEntryType.morningWater:
-      case RoutineEntryType.postWorkoutWater:
-        return "Boss! You haven't logged your water yet. "
+      case RoutineEntryType.wake:
+        return "Time to wake up! You haven't confirmed yet. Get up now!";
+      case RoutineEntryType.meal:
+        return "Did you have your ${entry.label}? Please confirm or reschedule.";
+      case RoutineEntryType.hydration:
+        return "You haven't logged your water yet. "
             "Drink ${entry.waterMl ?? 400}ml now and confirm.";
-      case RoutineEntryType.workout:
-      case RoutineEntryType.gym:
-        return "Boss, your ${entry.label} reminder went unanswered. "
+      case RoutineEntryType.activity:
+        return "Your ${entry.label} reminder went unanswered. "
             "Did you complete it or should we reschedule?";
-      case RoutineEntryType.study:
-        return "Study time is passing, boss! "
-            "Have you started or do you want to reschedule?";
-      default:
-        return "Boss, you missed your ${entry.label} reminder. "
+      case RoutineEntryType.wind:
+        return "Time to wind down — don't forget your bedtime prep!";
+      case RoutineEntryType.reminder:
+        return "You missed your ${entry.label} reminder. "
             "Please confirm or reschedule.";
     }
   }
@@ -359,9 +343,7 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
     final isMeal = widget.entry.type.isMeal;
     final isWater = widget.entry.type.isWater;
     final suggestions = _svc.suggestRescheduleTimes(widget.entry);
-    final presets = widget.entry.type == RoutineEntryType.snacks
-        ? RoutineConfirmationService.snackPresets
-        : RoutineConfirmationService.messFoodPresets;
+    final presets = RoutineConfirmationService.messFoodPresets;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.6,

@@ -29,7 +29,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), 'routine_assistant.db');
     return openDatabase(
       path,
-      version: 14,
+      version: 15,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -226,6 +226,34 @@ class DatabaseHelper {
         }
         if (oldVersion < 14) {
           await _createRoutineLogsTable(db);
+        }
+        if (oldVersion < 15) {
+          // Migrate routine_entries.type from old lifestyle-specific names
+          // to the new 6 generic behavioral categories.
+          const typeMap = {
+            'wakeUp':           'wake',
+            'morningWater':     'hydration',
+            'postWorkoutWater': 'hydration',
+            'waterReminder':    'hydration',
+            'breakfast':        'meal',
+            'lunch':            'meal',
+            'dinner':           'meal',
+            'snacks':           'meal',
+            'workout':          'activity',
+            'gym':              'activity',
+            'study':            'activity',
+            'college':          'activity',
+            'nap':              'activity',
+            'postGymProtein':   'reminder',
+            'bedtimePrep':      'wind',
+            'custom':           'reminder',
+          };
+          for (final entry in typeMap.entries) {
+            await db.rawUpdate(
+              "UPDATE routine_entries SET type = ? WHERE type = ?",
+              [entry.value, entry.key],
+            );
+          }
         }
       },
     );
