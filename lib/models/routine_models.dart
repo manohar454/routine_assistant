@@ -200,12 +200,18 @@ class RoutineEntry {
     return '$displayHour:${m.toString().padLeft(2, '0')} $period';
   }
 
+  /// Sentinel value for explicitly clearing an optional int field via [copyWith].
+  /// Pass this instead of null to force a field back to null.
+  static const clearInt = -999999;
+
   RoutineEntry copyWith({
     RoutineEntryType? type,
     int? timeOfDayMinutes,
     String? label,
     String? message,
+    /// Pass [RoutineEntry._clearInt] to explicitly clear to null.
     int? waterMl,
+    /// Pass [RoutineEntry._clearInt] to explicitly clear to null.
     int? durationMinutes,
     List<int>? activeDays,
     bool? enabled,
@@ -217,8 +223,10 @@ class RoutineEntry {
       timeOfDayMinutes: timeOfDayMinutes ?? this.timeOfDayMinutes,
       label: label ?? this.label,
       message: message ?? this.message,
-      waterMl: waterMl ?? this.waterMl,
-      durationMinutes: durationMinutes ?? this.durationMinutes,
+      waterMl: waterMl == clearInt ? null : (waterMl ?? this.waterMl),
+      durationMinutes: durationMinutes == clearInt
+          ? null
+          : (durationMinutes ?? this.durationMinutes),
       activeDays: activeDays ?? this.activeDays,
       enabled: enabled ?? this.enabled,
       extra: extra ?? this.extra,
@@ -275,7 +283,7 @@ class DefaultRoutineTimetable {
   // (5:45 AM wake → study → college → mess → nap → college → snacks → gym → dinner → sleep)
   static const _waterSlots = [
     _WaterSlot(345,  RoutineEntryType.morningWater,    'Morning Water'),     // 5:45 AM
-    _WaterSlot(480,  RoutineEntryType.waterReminder,   'Pre-Breakfast Water'),// 8:00 AM
+    _WaterSlot(485,  RoutineEntryType.waterReminder,   'Pre-Breakfast Water'),// 8:05 AM
     _WaterSlot(570,  RoutineEntryType.waterReminder,   'Mid-Morning Water'),  // 9:30 AM
     _WaterSlot(660,  RoutineEntryType.waterReminder,   'Late Morning Water'), // 11:00 AM
     _WaterSlot(750,  RoutineEntryType.waterReminder,   'Pre-Lunch Water'),    // 12:30 PM

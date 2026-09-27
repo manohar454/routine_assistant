@@ -103,10 +103,14 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
   }
 
   void _addCustomEntry() {
+    // Default to current time of day rounded to nearest 5 min.
+    final now = DateTime.now();
+    final rawMin = now.hour * 60 + now.minute;
+    final roundedMin = ((rawMin + 2) ~/ 5) * 5; // round to nearest 5
     final entry = RoutineEntry(
       id: const Uuid().v4(),
       type: RoutineEntryType.custom,
-      timeOfDayMinutes: 720, // default noon
+      timeOfDayMinutes: roundedMin,
       label: 'Custom Reminder',
       message: RoutineEntryType.custom.defaultMessage(),
     );
@@ -147,6 +151,43 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
     );
   }
 
+  // ── Timetable settings ─────────────────────────────────────────────────────
+
+  Future<void> _showTimetableSettings() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _TimetableSettingsSheet(
+        onResetToDefaults: _resetToDefaults,
+      ),
+    );
+  }
+
+  Future<void> _resetToDefaults() async {
+    final db = DatabaseHelper.instance;
+    final waterGoal = int.tryParse(
+            await db.getSetting('routine_waterGoalMl') ?? '') ?? 5000;
+    final workoutDur = int.tryParse(
+            await db.getSetting('routine_workoutDurationMinutes') ?? '') ?? 45;
+    final napDur = int.tryParse(
+            await db.getSetting('routine_napDurationMinutes') ?? '') ?? 30;
+    final studyDur = int.tryParse(
+            await db.getSetting('routine_studyDurationMinutes') ?? '') ?? 60;
+
+    final defaults = DefaultRoutineTimetable.build(
+      waterGoalMl: waterGoal,
+      workoutDurationMinutes: workoutDur,
+      napDurationMinutes: napDur,
+      studyDurationMinutes: studyDur,
+    );
+    setState(() {
+      _entries = defaults;
+      _entries.sort((a, b) => a.timeOfDayMinutes.compareTo(b.timeOfDayMinutes));
+    });
+    await _save();
+  }
+
   // ── Wake alarm test ────────────────────────────────────────────────────────
 
   void _testWakeAlarm() {
@@ -174,12 +215,35 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
           _updateEntry(updated);
           Navigator.pop(ctx);
         },
-        onDelete: entry.type == RoutineEntryType.custom
-            ? () {
-                _deleteEntry(entry.id);
-                Navigator.pop(ctx);
-              }
-            : null,
+        onDelete: () async {
+          final confirm = await showDialog<bool>(
+            context: ctx,
+            builder: (dCtx) => AlertDialog(
+              title: const Text('Delete entry?'),
+              content: Text(
+                'Remove "${entry.label}" from your timetable?\n'
+                'This cannot be undone — you can always reset to defaults from Settings.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dCtx, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dCtx, true),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(dCtx).colorScheme.error,
+                  ),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          );
+          if (confirm == true) {
+            _deleteEntry(entry.id);
+            if (ctx.mounted) Navigator.pop(ctx);
+          }
+        },
       ),
     );
   }
@@ -200,6 +264,11 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
       appBar: AppBar(
         title: const Text('Daily Routine'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Timetable settings',
+            onPressed: _showTimetableSettings,
+          ),
           if (_saving)
             const Padding(
               padding: EdgeInsets.only(right: 16),
@@ -345,6 +414,14 @@ class _EntryCard extends StatelessWidget {
         return dark ? const Color(0xFF0C1E28) : const Color(0xFFE3F2FD);
       case RoutineEntryType.bedtimePrep:
         return dark ? const Color(0xFF12101E) : const Color(0xFFEDE7F6);
+      case RoutineEntryType.study:
+        return dark ? const Color(0xFF0E1828) : const Color(0xFFE8F0FE);
+      case RoutineEntryType.nap:
+        return dark ? const Color(0xFF12101E) : const Color(0xFFF3E5F5);
+      case RoutineEntryType.college:
+        return dark ? const Color(0xFF0A1A14) : const Color(0xFFE8F5E9);
+      case RoutineEntryType.snacks:
+        return dark ? const Color(0xFF1A1508) : const Color(0xFFFFF8E1);
       case RoutineEntryType.custom:
         return dark ? AppColors.darkCard : AppColors.cardSurface;
     }
@@ -453,7 +530,7 @@ class _EntryCard extends StatelessWidget {
 class _EntryEditSheet extends StatefulWidget {
   final RoutineEntry entry;
   final void Function(RoutineEntry) onSave;
-  final VoidCallback? onDelete;
+  final Future<void> Function()? onDelete;
 
   const _EntryEditSheet({
     required this.entry,
@@ -472,6 +549,7 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
   late TextEditingController _durationCtrl;
   late int _timeMin;
   late List<int> _activeDays;
+  late RoutineEntryType _type;
   bool _enabled = true;
   bool _testingTts = false;
 
@@ -479,6 +557,7 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
   void initState() {
     super.initState();
     final e = widget.entry;
+    _type         = e.type;
     _labelCtrl    = TextEditingController(text: e.label);
     _messageCtrl  = TextEditingController(text: e.message);
     _waterCtrl    = TextEditingController(
@@ -488,6 +567,33 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
     _timeMin      = e.timeOfDayMinutes;
     _activeDays   = List.of(e.activeDays);
     _enabled      = e.enabled;
+  }
+
+  void _onTypeChanged(RoutineEntryType? t) {
+    if (t == null) return;
+    setState(() {
+      _type = t;
+      // Auto-refresh label and message to match new type defaults only
+      // if user hasn't customised them yet (matches current type defaults).
+      final oldDefault = widget.entry.type.defaultMessage(
+        waterMl: int.tryParse(_waterCtrl.text),
+        durationMinutes: int.tryParse(_durationCtrl.text),
+      );
+      if (_messageCtrl.text.trim() == oldDefault ||
+          _messageCtrl.text.trim() == widget.entry.message) {
+        _messageCtrl.text = t.defaultMessage(
+          waterMl: int.tryParse(_waterCtrl.text),
+          durationMinutes: int.tryParse(_durationCtrl.text),
+        );
+      }
+      if (_labelCtrl.text.trim() == widget.entry.type.label ||
+          _labelCtrl.text.trim() == widget.entry.label) {
+        _labelCtrl.text = t.label;
+      }
+      // Clear fields that don't apply to new type.
+      if (!t.isWater) _waterCtrl.clear();
+      if (!t.isDuration) _durationCtrl.clear();
+    });
   }
 
   @override
@@ -518,7 +624,20 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
   }
 
   void _save() {
+    final waterText = _waterCtrl.text.trim();
+    final durText   = _durationCtrl.text.trim();
+
+    // If field is now empty but had a value, explicitly clear to null.
+    // Pass RoutineEntry._clearInt sentinel so copyWith doesn't keep old value.
+    final int waterMl = waterText.isEmpty
+        ? RoutineEntry.clearInt
+        : (int.tryParse(waterText) ?? widget.entry.waterMl ?? RoutineEntry.clearInt);
+    final int durationMins = durText.isEmpty
+        ? RoutineEntry.clearInt
+        : (int.tryParse(durText) ?? widget.entry.durationMinutes ?? RoutineEntry.clearInt);
+
     final updated = widget.entry.copyWith(
+      type: _type,
       label: _labelCtrl.text.trim().isEmpty
           ? widget.entry.label
           : _labelCtrl.text.trim(),
@@ -526,8 +645,8 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
           ? widget.entry.message
           : _messageCtrl.text.trim(),
       timeOfDayMinutes: _timeMin,
-      waterMl: int.tryParse(_waterCtrl.text.trim()),
-      durationMinutes: int.tryParse(_durationCtrl.text.trim()),
+      waterMl: waterMl,
+      durationMinutes: durationMins,
       activeDays: _activeDays,
       enabled: _enabled,
     );
@@ -581,23 +700,22 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
               child: Row(
                 children: [
                   Text(
-                    widget.entry.type.emoji,
+                    _type.emoji,
                     style: const TextStyle(fontSize: 22),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Edit ${widget.entry.type.label}',
+                      'Edit Entry',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
-                  if (widget.onDelete != null)
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline,
-                          color: AppColors.clay),
-                      onPressed: widget.onDelete,
-                      tooltip: 'Delete',
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline,
+                        color: AppColors.clay),
+                    onPressed: widget.onDelete,
+                    tooltip: 'Delete entry',
+                  ),
                 ],
               ),
             ),
@@ -607,6 +725,30 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
                 controller: scrollCtrl,
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                 children: [
+                  // Type picker
+                  DropdownButtonFormField<RoutineEntryType>(
+                    value: _type,
+                    decoration: const InputDecoration(
+                      labelText: 'Entry type',
+                      border: inputBorder,
+                    ),
+                    items: RoutineEntryType.values.map((t) {
+                      return DropdownMenuItem(
+                        value: t,
+                        child: Row(
+                          children: [
+                            Text(t.emoji,
+                                style: const TextStyle(fontSize: 16)),
+                            const SizedBox(width: 8),
+                            Text(t.label),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: _onTypeChanged,
+                  ),
+                  const SizedBox(height: 14),
+
                   // Enable toggle
                   Row(
                     children: [
@@ -669,32 +811,33 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Water ml (only for water types)
-                  if (widget.entry.type == RoutineEntryType.morningWater ||
-                      widget.entry.type == RoutineEntryType.waterReminder ||
-                      widget.entry.type == RoutineEntryType.postWorkoutWater) ...[
+                  // Water ml — shown for all water-tracking types
+                  if (_type.isWater) ...[
                     TextField(
                       controller: _waterCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: 'Water amount (ml)',
+                        hintText: 'e.g. 400',
                         border: inputBorder,
                         suffixText: 'ml',
+                        helperText: 'Clear to remove water tracking',
                       ),
                     ),
                     const SizedBox(height: 12),
                   ],
 
-                  // Duration (for workout)
-                  if (widget.entry.type == RoutineEntryType.workout ||
-                      widget.entry.type == RoutineEntryType.gym) ...[
+                  // Duration — shown for all timed-block types (workout, gym, nap, study)
+                  if (_type.isDuration) ...[
                     TextField(
                       controller: _durationCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: 'Duration (minutes)',
+                        hintText: 'e.g. 45',
                         border: inputBorder,
                         suffixText: 'min',
+                        helperText: 'Clear to omit duration from voice message',
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -738,6 +881,250 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
                       ),
                     ),
                     child: const Text('Save Changes'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Timetable settings sheet ──────────────────────────────────────────────────
+
+class _TimetableSettingsSheet extends StatefulWidget {
+  final Future<void> Function() onResetToDefaults;
+
+  const _TimetableSettingsSheet({required this.onResetToDefaults});
+
+  @override
+  State<_TimetableSettingsSheet> createState() =>
+      _TimetableSettingsSheetState();
+}
+
+class _TimetableSettingsSheetState extends State<_TimetableSettingsSheet> {
+  final _waterCtrl    = TextEditingController();
+  final _workoutCtrl  = TextEditingController();
+  final _napCtrl      = TextEditingController();
+  final _studyCtrl    = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final db = DatabaseHelper.instance;
+    final water   = await db.getSetting('routine_waterGoalMl');
+    final workout = await db.getSetting('routine_workoutDurationMinutes');
+    final nap     = await db.getSetting('routine_napDurationMinutes');
+    final study   = await db.getSetting('routine_studyDurationMinutes');
+    if (!mounted) return;
+    setState(() {
+      _waterCtrl.text   = water   ?? '5000';
+      _workoutCtrl.text = workout ?? '45';
+      _napCtrl.text     = nap     ?? '30';
+      _studyCtrl.text   = study   ?? '60';
+    });
+  }
+
+  Future<void> _savePrefs() async {
+    setState(() => _saving = true);
+    final db = DatabaseHelper.instance;
+    await db.setSetting('routine_waterGoalMl',
+        '${int.tryParse(_waterCtrl.text) ?? 5000}');
+    await db.setSetting('routine_workoutDurationMinutes',
+        '${int.tryParse(_workoutCtrl.text) ?? 45}');
+    await db.setSetting('routine_napDurationMinutes',
+        '${int.tryParse(_napCtrl.text) ?? 30}');
+    await db.setSetting('routine_studyDurationMinutes',
+        '${int.tryParse(_studyCtrl.text) ?? 60}');
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Default settings saved'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _confirmReset() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset to defaults?'),
+        content: const Text(
+          'This will replace your entire timetable with the default schedule '
+          'using the settings above. All custom edits will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _savePrefs();
+    await widget.onResetToDefaults();
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  void dispose() {
+    _waterCtrl.dispose();
+    _workoutCtrl.dispose();
+    _napCtrl.dispose();
+    _studyCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    const inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.all(AppRadius.sm),
+    );
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: BoxDecoration(
+          color: dark ? AppColors.darkSurface : AppColors.cardSurface,
+          borderRadius: const BorderRadius.vertical(top: AppRadius.xl),
+        ),
+        child: Column(
+          children: [
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 4),
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: dark ? AppColors.darkBorder : AppColors.mist,
+                  borderRadius: const BorderRadius.all(AppRadius.pill),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.tune, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Default Timetable Settings',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                children: [
+                  Text(
+                    'These values are used when resetting to the default timetable.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: dark
+                              ? AppColors.darkInkSubtle
+                              : AppColors.inkSubtle,
+                        ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Daily water goal
+                  TextField(
+                    controller: _waterCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Daily water goal',
+                      suffixText: 'ml',
+                      helperText: 'Split evenly across water reminder slots',
+                      border: inputBorder,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Workout duration
+                  TextField(
+                    controller: _workoutCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Morning workout duration',
+                      suffixText: 'min',
+                      border: inputBorder,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Nap duration
+                  TextField(
+                    controller: _napCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Afternoon nap duration',
+                      suffixText: 'min',
+                      border: inputBorder,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Study duration
+                  TextField(
+                    controller: _studyCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Study session duration',
+                      suffixText: 'min',
+                      border: inputBorder,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  FilledButton(
+                    onPressed: _saving ? null : _savePrefs,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(AppRadius.md),
+                      ),
+                    ),
+                    child: const Text('Save Settings'),
+                  ),
+                  const SizedBox(height: 12),
+
+                  OutlinedButton.icon(
+                    onPressed: _saving ? null : _confirmReset,
+                    icon: const Icon(Icons.restore, size: 18),
+                    label: const Text('Reset Timetable to Defaults'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                      side: BorderSide(
+                          color: Theme.of(context).colorScheme.error),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(AppRadius.md),
+                      ),
+                    ),
                   ),
                 ],
               ),
