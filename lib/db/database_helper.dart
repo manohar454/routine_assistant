@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import '../models/task.dart';
+import '../models/timetable_models.dart';
 import '../models/music_models.dart';
 import '../models/workout_models.dart';
 import '../models/water_models.dart';
@@ -29,7 +30,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), 'routine_assistant.db');
     return openDatabase(
       path,
-      version: 15,
+      version: 16,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -69,6 +70,7 @@ class DatabaseHelper {
         await _createGoalTables(db);
         await _createRoutineTable(db);
         await _createRoutineLogsTable(db);
+        await _createTimetableTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -227,6 +229,9 @@ class DatabaseHelper {
         if (oldVersion < 14) {
           await _createRoutineLogsTable(db);
         }
+        if (oldVersion < 16) {
+          await _createTimetableTable(db);
+        }
         if (oldVersion < 15) {
           // Migrate routine_entries.type from old lifestyle-specific names
           // to the new 6 generic behavioral categories.
@@ -319,6 +324,45 @@ class DatabaseHelper {
         timestamp TEXT NOT NULL
       )
     ''');
+  }
+
+  Future<void> _createTimetableTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS timetable_entries (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        hour INTEGER NOT NULL,
+        minute INTEGER NOT NULL,
+        estimatedDurationMinutes INTEGER NOT NULL,
+        flexibility TEXT NOT NULL
+      )
+    ''');
+  }
+
+  // ── Timetable CRUD ────────────────────────────────────────────────────────
+
+  Future<List<TimetableEntry>> getTimetableEntries() async {
+    final db = await database;
+    final maps = await db.query('timetable_entries', orderBy: 'hour ASC, minute ASC');
+    return maps.map(TimetableEntry.fromMap).toList();
+  }
+
+  Future<void> insertTimetableEntry(TimetableEntry entry) async {
+    final db = await database;
+    await db.insert('timetable_entries', entry.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> updateTimetableEntry(TimetableEntry entry) async {
+    final db = await database;
+    await db.update('timetable_entries', entry.toMap(),
+        where: 'id = ?', whereArgs: [entry.id]);
+  }
+
+  Future<void> deleteTimetableEntry(String id) async {
+    final db = await database;
+    await db.delete('timetable_entries', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> _createRoutineLogsTable(Database db) async {

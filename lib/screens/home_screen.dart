@@ -32,6 +32,7 @@ import 'llm_settings_screen.dart';
 import 'app_settings_screen.dart';
 import 'reasoning_trace_screen.dart';
 import 'routine_timetable_screen.dart';
+import 'timetable_screen.dart';
 import '../models/routine_models.dart';
 import '../widgets/reschedule_sheet.dart';
 
@@ -590,6 +591,11 @@ class _HomeScreenState extends State<HomeScreen>
                         MaterialPageRoute(
                             builder: (_) => const RoutineTimetableScreen()),
                       ),
+                      onTimetable: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const TimetableScreen()),
+                      ),
                     ),
                   ),
                 ),
@@ -843,6 +849,7 @@ class _QuickActions extends StatelessWidget {
   final VoidCallback onDailyReport;
   final VoidCallback onDecisionLog;
   final VoidCallback onRoutine;
+  final VoidCallback onTimetable;
 
   const _QuickActions({
     required this.waterMl,
@@ -863,6 +870,7 @@ class _QuickActions extends StatelessWidget {
     required this.onDailyReport,
     required this.onDecisionLog,
     required this.onRoutine,
+    required this.onTimetable,
   });
 
   @override
@@ -899,6 +907,7 @@ class _QuickActions extends StatelessWidget {
             _NavChipItem(Icons.summarize_rounded, 'Report', onDailyReport),
             _NavChipItem(Icons.history_rounded, 'Decisions', onDecisionLog),
             _NavChipItem(Icons.record_voice_over_rounded, 'Routine', onRoutine),
+            _NavChipItem(Icons.calendar_view_week_rounded, 'Timetable', onTimetable),
           ],
         ),
         const SizedBox(height: 12),
