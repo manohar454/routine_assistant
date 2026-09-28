@@ -6,6 +6,7 @@ import '../services/routine_alarm_service.dart';
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
 import 'wake_alarm_screen.dart';
+import 'calendar_screen.dart';
 
 /// AI Voice Companion — Timetable editor screen.
 ///
@@ -259,6 +260,14 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
       appBar: AppBar(
         title: const Text('Daily Routine'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month_outlined),
+            tooltip: 'Monthly schedule & one-time reminders',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CalendarScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Timetable settings',
