@@ -369,6 +369,7 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
       canPop: false,
       child: Scaffold(
         backgroundColor: _bgColor,
+        resizeToAvoidBottomInset: false,
         body: AnimatedBuilder(
           animation: _shakeCtrl,
           builder: (context, child) => Transform.translate(
@@ -378,7 +379,16 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
             child: child,
           ),
           child: SafeArea(
-          child: Column(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+              final availH = constraints.maxHeight - viewInsets;
+              return SingleChildScrollView(
+                reverse: true, // keep bottom (math gate) in view when keyboard opens
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: availH),
+                  child: IntrinsicHeight(
+                    child: Column(
             children: [
               // ── Escalation banner ──
               if (_escalationLevel > 0)
@@ -400,9 +410,7 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
                 ),
 
               // ── Header: time + motivational quote ──
-              Expanded(
-                flex: 3,
-                child: Padding(
+              Padding(
                   padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -476,13 +484,10 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
                       ],
                     ],
                   ),
-                ),
               ),
 
               // ── Math gate ──
-              Expanded(
-                flex: 4,
-                child: Container(
+              Container(
                   margin: const EdgeInsets.all(20),
                   padding: const EdgeInsets.all(28),
                   decoration: BoxDecoration(
@@ -619,7 +624,7 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
 
               // ── Repeat TTS ──
               Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: EdgeInsets.only(bottom: 16 + viewInsets),
                 child: TextButton.icon(
                   onPressed: _speakGreeting,
                   icon: const Icon(Icons.volume_up,
@@ -632,6 +637,11 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
                 ),
               ),
             ],
+          ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
         ),
