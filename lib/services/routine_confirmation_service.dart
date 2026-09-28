@@ -372,8 +372,7 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
 
             // Title
             Row(children: [
-              Text(widget.entry.type.emoji,
-                  style: const TextStyle(fontSize: 28)),
+              Icon(widget.entry.type.icon, size: 28),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

@@ -134,7 +134,7 @@ class RoutineAlarmService {
     try {
       await _plugin.zonedSchedule(
         notifId,
-        '${entry.type.emoji} ${entry.label}',
+        '${entry.label}',
         entry.message.length > 80
             ? '${entry.message.substring(0, 80)}…'
             : entry.message,
@@ -151,7 +151,7 @@ class RoutineAlarmService {
         // Fall back to inexact — still repeating daily.
         await _plugin.zonedSchedule(
           notifId,
-          '${entry.type.emoji} ${entry.label}',
+          '${entry.label}',
           entry.message.length > 80
               ? '${entry.message.substring(0, 80)}…'
               : entry.message,

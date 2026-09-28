@@ -387,7 +387,7 @@ class NotificationService {
     final notifId = 4000 + entry.id.hashCode.abs() % 1000;
     await _plugin.show(
       notifId,
-      '${entry.type.emoji} Missed: ${entry.label}',
+      'Missed: ${entry.label}',
       'Tap to confirm, reschedule, or skip.',
       details,
       payload: 'missed:${entry.id}:${entry.type.name}',
@@ -419,7 +419,7 @@ class NotificationService {
     try {
       await _plugin.zonedSchedule(
         notifId,
-        '${entry.type.emoji} ${entry.label} (rescheduled)',
+        '${entry.label} (rescheduled)',
         entry.message.length > 80
             ? '${entry.message.substring(0, 80)}…'
             : entry.message,
@@ -433,7 +433,7 @@ class NotificationService {
     } on PlatformException {
       await _plugin.zonedSchedule(
         notifId,
-        '${entry.type.emoji} ${entry.label} (rescheduled)',
+        '${entry.label} (rescheduled)',
         entry.message.length > 80
             ? '${entry.message.substring(0, 80)}…'
             : entry.message,

@@ -114,7 +114,14 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.entry.type.emoji} ${widget.entry.label}'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(widget.entry.type.icon, size: 18),
+            const SizedBox(width: 8),
+            Text(widget.entry.label),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.volume_up),
