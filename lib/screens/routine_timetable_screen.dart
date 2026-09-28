@@ -43,22 +43,11 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
 
   Future<void> _load() async {
     final stored = await _db.getAllRoutineEntries();
-    if (stored.isEmpty) {
-      // First launch — populate with defaults.
-      final defaults = DefaultRoutineTimetable.build();
-      for (final e in defaults) {
-        await _db.upsertRoutineEntry(e);
-      }
-      setState(() {
-        _entries = defaults;
-        _loading = false;
-      });
-    } else {
-      setState(() {
-        _entries = stored;
-        _loading = false;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _entries = stored;
+      _loading = false;
+    });
   }
 
   // ── Save & schedule ────────────────────────────────────────────────────────
@@ -112,8 +101,8 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
       id: const Uuid().v4(),
       type: RoutineEntryType.reminder,
       timeOfDayMinutes: roundedMin,
-      label: 'Custom Reminder',
-      message: RoutineEntryType.reminder.defaultMessage(),
+      label: '',
+      message: '',
     );
     setState(() {
       _entries.add(entry);
@@ -302,9 +291,24 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
 
           // ── Entries list ──
           if (_entries.isEmpty)
-            const SliverFillRemaining(
+            SliverFillRemaining(
               child: Center(
-                child: Text('No reminders yet — tap + to add one.'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('📋', style: TextStyle(fontSize: 48)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No entries yet',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tap + Add Reminder to build your routine',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
               ),
             )
           else
@@ -438,9 +442,13 @@ class _EntryCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // Emoji icon
-              Text(entry.type.emoji,
-                  style: const TextStyle(fontSize: 26)),
+              // Emoji icon (custom or type default)
+              Text(
+                (entry.extra['customEmoji'] as String?)?.isNotEmpty == true
+                    ? entry.extra['customEmoji'] as String
+                    : entry.type.emoji,
+                style: const TextStyle(fontSize: 26),
+              ),
               const SizedBox(width: 12),
               // Label + time
               Expanded(
@@ -540,14 +548,17 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
   late int _timeMin;
   late List<int> _activeDays;
   late RoutineEntryType _type;
+  late String _customEmoji;
   bool _enabled = true;
   bool _testingTts = false;
+  bool _showEmojiPicker = false;
 
   @override
   void initState() {
     super.initState();
     final e = widget.entry;
     _type         = e.type;
+    _customEmoji  = (e.extra['customEmoji'] as String?) ?? '';
     _labelCtrl    = TextEditingController(text: e.label);
     _messageCtrl  = TextEditingController(text: e.message);
     _waterCtrl    = TextEditingController(
@@ -629,16 +640,20 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
     final updated = widget.entry.copyWith(
       type: _type,
       label: _labelCtrl.text.trim().isEmpty
-          ? widget.entry.label
+          ? _type.label          // fall back to type name, not old label
           : _labelCtrl.text.trim(),
       message: _messageCtrl.text.trim().isEmpty
-          ? widget.entry.message
+          ? _type.defaultMessage()
           : _messageCtrl.text.trim(),
       timeOfDayMinutes: _timeMin,
       waterMl: waterMl,
       durationMinutes: durationMins,
       activeDays: _activeDays,
       enabled: _enabled,
+      extra: {
+        ...widget.entry.extra,
+        'customEmoji': _customEmoji,
+      },
     );
     widget.onSave(updated);
   }
@@ -690,13 +705,13 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
               child: Row(
                 children: [
                   Text(
-                    _type.emoji,
+                    (_customEmoji.isNotEmpty) ? _customEmoji : _type.emoji,
                     style: const TextStyle(fontSize: 22),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Edit Entry',
+                      widget.entry.label.isEmpty ? 'New Entry' : 'Edit Entry',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
@@ -774,8 +789,68 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
                     decoration: InputDecoration(
                       labelText: 'Label',
                       border: inputBorder,
+                      hintText: 'e.g. Morning Run, Study Block…',
+                    ),
+                    textCapitalization: TextCapitalization.sentences,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Emoji picker
+                  GestureDetector(
+                    onTap: () =>
+                        setState(() => _showEmojiPicker = !_showEmojiPicker),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: dark
+                            ? AppColors.darkSurface
+                            : AppColors.cardSurface,
+                        borderRadius:
+                            const BorderRadius.all(AppRadius.sm),
+                        border: Border.all(
+                          color: dark
+                              ? AppColors.darkBorder
+                              : AppColors.mist,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            _customEmoji.isNotEmpty
+                                ? _customEmoji
+                                : _type.emoji,
+                            style: const TextStyle(fontSize: 22),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Emoji icon',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium,
+                            ),
+                          ),
+                          Icon(
+                            _showEmojiPicker
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                            size: 18,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
+                  if (_showEmojiPicker) ...[
+                    const SizedBox(height: 8),
+                    _EmojiGrid(
+                      selected: _customEmoji,
+                      onSelect: (e) => setState(() {
+                        _customEmoji = e;
+                        _showEmojiPicker = false;
+                      }),
+                    ),
+                  ],
                   const SizedBox(height: 12),
 
                   // Message
@@ -877,6 +952,77 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Emoji grid ────────────────────────────────────────────────────────────────
+
+class _EmojiGrid extends StatelessWidget {
+  final String selected;
+  final void Function(String) onSelect;
+
+  const _EmojiGrid({required this.selected, required this.onSelect});
+
+  static const _emojis = [
+    // Health & body
+    '💧','🥤','🍎','🥗','🍽️','🥕','🍳','☕','🧃',
+    // Fitness
+    '🏃','🏋️','🚴','🧘','⚽','🏀','🎾','🤸','💪','🥊',
+    // Mind & study
+    '📚','📖','✏️','🎯','💡','🧠','📝','🖥️','🎓','📐',
+    // Time & reminders
+    '⏰','🔔','🔕','⏱️','⌚','📅','🗓️','⏳',
+    // Routine
+    '🌅','🌙','😴','🛏️','🚿','🪥','🪴','🧘',
+    // Work
+    '💼','📊','📈','📋','✅','🗂️','💬','📞','📧',
+    // Fun & life
+    '🎵','🎮','🎨','📸','🌿','🌸','🐾','🚗','🌍','❤️',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = context.isDark;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: dark ? AppColors.darkCard : AppColors.canvas,
+        borderRadius: const BorderRadius.all(AppRadius.md),
+        border: Border.all(
+          color: dark ? AppColors.darkBorder : AppColors.mist,
+        ),
+      ),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: _emojis.map((e) {
+          final isSel = e == selected;
+          return GestureDetector(
+            onTap: () => onSelect(e),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: isSel
+                    ? (dark ? AppColors.darkDeep : AppColors.deep)
+                        .withValues(alpha: 0.2)
+                    : Colors.transparent,
+                borderRadius: const BorderRadius.all(AppRadius.xs),
+                border: isSel
+                    ? Border.all(
+                        color: dark ? AppColors.darkDeep : AppColors.deep,
+                        width: 1.5,
+                      )
+                    : null,
+              ),
+              child: Center(
+                child: Text(e, style: const TextStyle(fontSize: 20)),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
