@@ -105,7 +105,8 @@ Future<void> showRescheduleSheet({
     case RescheduleChoice.snooze:
       final newStart = DateTime.now().add(const Duration(minutes: 10));
       task.plannedStart = newStart;
-      task.plannedEnd   = newStart.add(Duration(minutes: task.estimatedDurationMinutes));
+      // plannedEnd is a computed getter (plannedStart + estimatedDurationMinutes),
+      // so updating plannedStart is sufficient — no separate setter needed.
       await DatabaseHelper.instance.updateTask(task);
       // Re-schedule voice check-in for new end time
       await NotificationService.instance.scheduleVoiceCheckIn(
