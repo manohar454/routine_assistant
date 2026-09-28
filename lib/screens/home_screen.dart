@@ -87,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
     setState(() => _todayTasks = tasks);
     await _loadSummaries();
+    await _checkMissedTasks();
     await _checkForActiveMoodTask(tasks);
     final forecast = await BurnoutForecastEngine.instance.forecast();
     // Persist every forecast so analytics can show historical burnout trend.
@@ -282,6 +283,92 @@ class _HomeScreenState extends State<HomeScreen>
     if (confirm == true) {
       await DatabaseHelper.instance.deleteTask(task.id);
       await _loadToday();
+    }
+  }
+
+  // ── Missed-task detection ─────────────────────────────────────────────────
+
+  /// Called after loading today's tasks. Shows a bottom sheet for each missed
+  /// task (only once per task per app session via [_shownMissedIds]).
+  final Set<String> _shownMissedIds = {};
+
+  Future<void> _checkMissedTasks() async {
+    final now = DateTime.now();
+    final missed = _todayTasks.where((t) =>
+        t.plannedEnd.isBefore(now) &&
+        t.status == TaskStatus.pending &&
+        !_shownMissedIds.contains(t.id));
+
+    for (final task in missed) {
+      _shownMissedIds.add(task.id);
+      if (!mounted) return;
+      await _showRescheduleSheet(task);
+    }
+  }
+
+  Future<void> _showRescheduleSheet(Task task) async {
+    final slot = rescheduleEngine.findFreeSlot(
+      missedTask: task,
+      todayTasks: _todayTasks,
+    );
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final choice = await showModalBottomSheet<_RescheduleChoice>(
+      context: context,
+      backgroundColor:
+          isDark ? AppColors.darkCard : AppColors.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => _MissedTaskSheet(
+        task: task,
+        suggestedSlot: slot,
+        isDark: isDark,
+      ),
+    );
+
+    if (choice == null || !mounted) return;
+
+    switch (choice) {
+      case _RescheduleChoice.useSlot:
+        if (slot != null) {
+          task.plannedStart = slot;
+          await db.updateTask(task);
+          await _loadToday();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '"${task.name}" rescheduled to '
+                  '${slot.hour.toString().padLeft(2, '0')}:${slot.minute.toString().padLeft(2, '0')}',
+                ),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
+      case _RescheduleChoice.shiftAll:
+        final delayMinutes =
+            DateTime.now().difference(task.plannedStart).inMinutes.clamp(1, 1440);
+        await rescheduleEngine.applyDelay(
+          delayedTask: task,
+          delayMinutes: delayMinutes,
+        );
+        // Move the missed task itself.
+        task.plannedStart = DateTime.now();
+        await db.updateTask(task);
+        await _loadToday();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Schedule shifted to match current time'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      case _RescheduleChoice.dismiss:
+        break;
     }
   }
 
@@ -1878,6 +1965,177 @@ class _TimeChip extends StatelessWidget {
                     : AppColors.inkSubtle),
             fontWeight: FontWeight.w700,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Missed-task reschedule sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum _RescheduleChoice { useSlot, shiftAll, dismiss }
+
+class _MissedTaskSheet extends StatelessWidget {
+  final Task task;
+  final DateTime? suggestedSlot;
+  final bool isDark;
+
+  const _MissedTaskSheet({
+    required this.task,
+    required this.suggestedSlot,
+    required this.isDark,
+  });
+
+  String _fmt(DateTime dt) =>
+      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final text = context.text;
+    final accentColor = isDark ? AppColors.darkAmber : AppColors.amber;
+    final inkColor = isDark ? AppColors.darkInk : AppColors.ink;
+    final subtleColor = isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 36),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkBorder : AppColors.mist,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          // Icon + title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.schedule_rounded, color: accentColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Missed task', style: text.labelSmall?.copyWith(color: subtleColor)),
+                    Text(task.name,
+                        style: text.titleMedium?.copyWith(
+                            color: inkColor, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Scheduled ${_fmt(task.plannedStart)} – ${_fmt(task.plannedEnd)}. '
+            'What would you like to do?',
+            style: text.bodyMedium?.copyWith(color: subtleColor),
+          ),
+          const SizedBox(height: 24),
+
+          // Option 1: move to free slot
+          if (suggestedSlot != null) ...[
+            _SheetOption(
+              isDark: isDark,
+              icon: Icons.move_down_rounded,
+              label: 'Move to ${_fmt(suggestedSlot!)}',
+              sublabel: 'Next free slot today',
+              onTap: () => Navigator.pop(context, _RescheduleChoice.useSlot),
+            ),
+            const SizedBox(height: 10),
+          ],
+
+          // Option 2: shift entire schedule
+          _SheetOption(
+            isDark: isDark,
+            icon: Icons.update_rounded,
+            label: 'Shift whole schedule',
+            sublabel: 'Push all remaining flexible tasks forward',
+            onTap: () => Navigator.pop(context, _RescheduleChoice.shiftAll),
+          ),
+          const SizedBox(height: 10),
+
+          // Option 3: dismiss / skip
+          _SheetOption(
+            isDark: isDark,
+            icon: Icons.close_rounded,
+            label: 'Skip this task',
+            sublabel: 'Leave schedule as-is',
+            onTap: () => Navigator.pop(context, _RescheduleChoice.dismiss),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetOption extends StatelessWidget {
+  final bool isDark;
+  final IconData icon;
+  final String label;
+  final String sublabel;
+  final VoidCallback onTap;
+
+  const _SheetOption({
+    required this.isDark,
+    required this.icon,
+    required this.label,
+    required this.sublabel,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = context.text;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkSurface : AppColors.canvas,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark ? AppColors.darkBorder : AppColors.mist,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon,
+                size: 20,
+                color: isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: text.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? AppColors.darkInk : AppColors.ink)),
+                  Text(sublabel, style: text.bodySmall),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                size: 18,
+                color: isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+          ],
         ),
       ),
     );

@@ -86,6 +86,70 @@ class RescheduleEngine {
     }
   }
 
+  /// Returns a [DateTime] start time for [missedTask] that fits in a gap
+  /// between remaining [todayTasks], or null if no gap is found before midnight.
+  ///
+  /// Rules:
+  ///  - Only looks at gaps that start at or after [now].
+  ///  - Skips completed tasks (they already occupy their slot, but we won't
+  ///    insert into them).
+  ///  - Will not insert before a FIXED task that would be displaced.
+  DateTime? findFreeSlot({
+    required Task missedTask,
+    required List<Task> todayTasks,
+    DateTime? now,
+  }) {
+    final reference = now ?? DateTime.now();
+    final needed = Duration(minutes: missedTask.estimatedDurationMinutes);
+
+    // Build list of occupied intervals from non-completed tasks, sorted by start.
+    final occupied = todayTasks
+        .where((t) =>
+            t.id != missedTask.id && t.status != TaskStatus.completed)
+        .toList()
+      ..sort((a, b) => a.plannedStart.compareTo(b.plannedStart));
+
+    // Candidate start: earliest possible is right now (rounded to next minute).
+    var candidate = DateTime(
+      reference.year,
+      reference.month,
+      reference.day,
+      reference.hour,
+      reference.minute,
+    ).add(const Duration(minutes: 1));
+
+    final midnight = DateTime(
+      reference.year,
+      reference.month,
+      reference.day,
+      23,
+      59,
+    );
+
+    for (final occ in occupied) {
+      // If the task starts in the past relative to candidate, skip it.
+      if (occ.plannedEnd.isBefore(candidate)) continue;
+
+      // Gap between candidate and the next task's start.
+      if (occ.plannedStart.isAfter(candidate) &&
+          occ.plannedStart.difference(candidate) >= needed) {
+        return candidate;
+      }
+
+      // Move candidate to after this occupying task.
+      if (occ.plannedEnd.isAfter(candidate)) {
+        candidate = occ.plannedEnd;
+      }
+    }
+
+    // Check remaining time after all tasks.
+    if (midnight.difference(candidate) >= needed) {
+      return candidate;
+    }
+
+    return null; // No gap found today.
+  }
+
   Future<void> markCompleted(Task task, {DateTime? actualEnd}) async {
     task.status = TaskStatus.completed;
     task.actualEnd = actualEnd ?? DateTime.now();
