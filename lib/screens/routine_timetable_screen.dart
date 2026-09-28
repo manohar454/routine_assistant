@@ -43,9 +43,17 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
 
   Future<void> _load() async {
     final stored = await _db.getAllRoutineEntries();
+    // Remove any legacy seeded defaults from old DB versions.
+    final legacyDefaults =
+        stored.where((e) => e.id.startsWith('default_')).toList();
+    for (final e in legacyDefaults) {
+      await _db.deleteRoutineEntry(e.id);
+    }
+    final clean =
+        stored.where((e) => !e.id.startsWith('default_')).toList();
     if (!mounted) return;
     setState(() {
-      _entries = stored;
+      _entries = clean;
       _loading = false;
     });
   }
@@ -313,7 +321,7 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
               sliver: SliverList.builder(
                 itemCount: _entries.length,
                 itemBuilder: (ctx, i) =>
@@ -330,57 +338,44 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
   }
 
   Widget _buildApplyPanel(bool dark) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: dark ? AppColors.darkCard : AppColors.cardSurface,
-        borderRadius: const BorderRadius.all(AppRadius.lg),
-        border: Border.all(
-          color: dark ? AppColors.darkBorder : AppColors.mist,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Row(
         children: [
-          Row(
-            children: [
-              const Icon(Icons.calendar_month, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                'Schedule scope',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ],
+          _ScopeChip(
+            label: 'Every day',
+            icon: Icons.date_range_outlined,
+            dark: dark,
+            onTap: _applyToWholeWeek,
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionChip(
-                  label: 'Whole Week',
-                  icon: Icons.date_range,
-                  onTap: _applyToWholeWeek,
+          const SizedBox(width: 8),
+          _ScopeChip(
+            label: 'This month',
+            icon: Icons.calendar_today_outlined,
+            dark: dark,
+            onTap: _applyToWholeMonth,
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: _testWakeAlarm,
+            child: Row(
+              children: [
+                Icon(Icons.alarm_outlined,
+                    size: 16,
+                    color: dark
+                        ? AppColors.darkInkSubtle
+                        : AppColors.inkSubtle),
+                const SizedBox(width: 4),
+                Text(
+                  'Test alarm',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: dark
+                            ? AppColors.darkInkSubtle
+                            : AppColors.inkSubtle,
+                      ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ActionChip(
-                  label: 'Whole Month',
-                  icon: Icons.calendar_today,
-                  onTap: _applyToWholeMonth,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ActionChip(
-                  label: 'Test Wake',
-                  icon: Icons.alarm,
-                  onTap: _testWakeAlarm,
-                  accent: true,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -424,70 +419,44 @@ class _EntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final emoji = (entry.extra['customEmoji'] as String?)?.isNotEmpty == true
+        ? entry.extra['customEmoji'] as String
+        : entry.type.emoji;
 
     return GestureDetector(
       onTap: onEdit,
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 200),
-        opacity: entry.enabled ? 1.0 : 0.55,
+        opacity: entry.enabled ? 1.0 : 0.45,
         child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
             color: _cardColor(dark),
-            borderRadius: const BorderRadius.all(AppRadius.md),
+            borderRadius: const BorderRadius.all(AppRadius.lg),
             border: Border.all(
-              color: dark ? AppColors.darkBorder : AppColors.mist,
+              color: (dark ? AppColors.darkBorder : AppColors.mist)
+                  .withValues(alpha: entry.enabled ? 1.0 : 0.6),
             ),
           ),
-          child: Row(
-            children: [
-              // Emoji icon (custom or type default)
-              Text(
-                (entry.extra['customEmoji'] as String?)?.isNotEmpty == true
-                    ? entry.extra['customEmoji'] as String
-                    : entry.type.emoji,
-                style: const TextStyle(fontSize: 26),
-              ),
-              const SizedBox(width: 12),
-              // Label + time
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.label,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: entry.enabled
-                                ? null
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.5),
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      entry.formattedTime,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: dark
-                                ? AppColors.darkInkSubtle
-                                : AppColors.inkSubtle,
-                          ),
-                    ),
-                    if (entry.waterMl != null)
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                // Time column
+                SizedBox(
+                  width: 60,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        '💧 ${entry.waterMl} ml',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: dark
-                                  ? AppColors.darkDeep
-                                  : AppColors.deep,
-                            ),
+                        entry.formattedTime.split(' ')[0], // "7:00"
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
-                    if (entry.activeDays.isNotEmpty)
                       Text(
-                        _daysLabel(entry.activeDays),
+                        entry.formattedTime.split(' ')[1], // "AM/PM"
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: dark
                                   ? AppColors.darkInkSubtle
@@ -495,22 +464,78 @@ class _EntryCard extends StatelessWidget {
                               fontSize: 11,
                             ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              // Toggle
-              Switch(
-                value: entry.enabled,
-                onChanged: (_) => onToggle(),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              // Edit chevron
-              Icon(
-                Icons.chevron_right,
-                color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
-                size: 18,
-              ),
-            ],
+                // Vertical divider
+                Container(
+                  width: 1,
+                  height: 36,
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  color: (dark ? AppColors.darkBorder : AppColors.mist),
+                ),
+                // Emoji + label
+                Text(emoji, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.label,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      if (entry.waterMl != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${entry.waterMl} ml',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: dark
+                                        ? AppColors.darkDeep
+                                        : AppColors.deep,
+                                    fontSize: 11,
+                                  ),
+                        ),
+                      ] else if (entry.durationMinutes != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${entry.durationMinutes} min',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: dark
+                                        ? AppColors.darkInkSubtle
+                                        : AppColors.inkSubtle,
+                                    fontSize: 11,
+                                  ),
+                        ),
+                      ] else if (entry.activeDays.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          _daysLabel(entry.activeDays),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: dark
+                                        ? AppColors.darkInkSubtle
+                                        : AppColors.inkSubtle,
+                                    fontSize: 11,
+                                  ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Toggle
+                Switch(
+                  value: entry.enabled,
+                  onChanged: (_) => onToggle(),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1236,56 +1261,50 @@ class _TimetableSettingsSheetState extends State<_TimetableSettingsSheet> {
   }
 }
 
-// ── Action chip helper ────────────────────────────────────────────────────────
+// ── Scope chip ────────────────────────────────────────────────────────────────
 
-class _ActionChip extends StatelessWidget {
+class _ScopeChip extends StatelessWidget {
   final String label;
   final IconData icon;
+  final bool dark;
   final VoidCallback onTap;
-  final bool accent;
 
-  const _ActionChip({
+  const _ScopeChip({
     required this.label,
     required this.icon,
+    required this.dark,
     required this.onTap,
-    this.accent = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: accent
-              ? AppColors.moss.withValues(alpha: dark ? 0.3 : 0.12)
-              : (dark ? AppColors.darkSurface : AppColors.mist),
-          borderRadius: const BorderRadius.all(AppRadius.sm),
+          color: dark ? AppColors.darkCard : AppColors.canvas,
+          borderRadius: const BorderRadius.all(AppRadius.pill),
           border: Border.all(
-            color: accent
-                ? AppColors.moss.withValues(alpha: 0.5)
-                : (dark ? AppColors.darkBorder : AppColors.mistDark),
+            color: dark ? AppColors.darkBorder : AppColors.mist,
           ),
         ),
-        child: Column(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon,
-                size: 18,
-                color: accent
-                    ? AppColors.moss
-                    : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle)),
-            const SizedBox(height: 4),
+                size: 14,
+                color:
+                    dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+            const SizedBox(width: 5),
             Text(
               label,
-              textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: accent
-                    ? AppColors.moss
-                    : (dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color:
+                    dark ? AppColors.darkInk : AppColors.ink,
               ),
             ),
           ],
