@@ -60,6 +60,7 @@ class AppSpacing {
 
 class AppRadius {
   AppRadius._();
+  static const xs  = Radius.circular(6);
   static const sm  = Radius.circular(10);
   static const md  = Radius.circular(16);
   static const lg  = Radius.circular(20);

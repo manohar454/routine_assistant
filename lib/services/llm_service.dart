@@ -1,5 +1,4 @@
 import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
 
 /// Manages the on-device Gemma 3 1B model lifecycle.
 ///
@@ -20,12 +19,10 @@ class LlmService {
   bool _modelReady = false;
   bool _loading = false;
 
-  /// Call once in main() before runApp — registers the inference engine.
-  /// Does NOT download the model yet.
+  /// Call once in main() before runApp — no-op in flutter_gemma 1.x
+  /// (engine registration is handled automatically).
   static Future<void> initialize() async {
-    await FlutterGemma.initialize(
-      inferenceEngines: [LiteRtEngine()],
-    );
+    // flutter_gemma 1.x does not require explicit engine registration.
   }
 
   /// True once the model has been downloaded and is ready to use.
@@ -42,15 +39,16 @@ class LlmService {
     _loading = true;
 
     try {
-      await FlutterGemma.installModel(modelType: ModelType.gemmaIt)
-          .fromNetwork(_modelUrl)
-          .install(onProgress: onProgress != null
-              ? (received, total) {
-                  if (total > 0) onProgress(received / total);
-                }
-              : null);
-
+      final gemma = FlutterGemmaPlugin.instance;
+      await gemma.loadAsset(
+        modelUrl: _modelUrl,
+        onProgress: onProgress != null
+            ? (progress) => onProgress(progress)
+            : null,
+      );
       _modelReady = true;
+    } catch (_) {
+      // Model load failed — app continues with rule-based fallbacks.
     } finally {
       _loading = false;
     }
@@ -64,11 +62,16 @@ class LlmService {
   Future<String> infer(String prompt, {int maxTokens = 256}) async {
     if (!_modelReady) return '';
 
-    final model = await FlutterGemma.getActiveModel(maxTokens: maxTokens);
-    final chat = await model.createChat();
-    await chat.addQueryChunk(Message.text(text: prompt, isUser: true));
-    final response = await chat.generateChatResponse();
-    return response?.text ?? '';
+    try {
+      final gemma = FlutterGemmaPlugin.instance;
+      final response = await gemma.getResponse(
+        prompt: prompt,
+        maxTokens: maxTokens,
+      );
+      return response ?? '';
+    } catch (_) {
+      return '';
+    }
   }
 
   /// Classifies a task description into one of the given [categories].

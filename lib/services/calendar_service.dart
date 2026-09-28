@@ -79,11 +79,11 @@ class CalendarService {
 
       for (final event in result.data!) {
         if (event.start == null || event.end == null) continue;
-        if (event.isAllDay ?? false) {
-          // All-day events count as a fixed 4 hours.
+        final dur = event.end!.difference(event.start!).inMinutes;
+        // Events spanning 22+ hours are treated as all-day (fixed 4 hours).
+        if (dur >= 22 * 60) {
           totalMinutes += 240;
         } else {
-          final dur = event.end!.difference(event.start!).inMinutes;
           totalMinutes += dur.clamp(0, _fullyBookedMinutes);
         }
       }
