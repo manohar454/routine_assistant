@@ -1094,7 +1094,7 @@ class _NavChipRow extends StatelessWidget {
     final iconBg = isDark ? const Color(0xFF1D2535) : const Color(0xFFEEF2FF);
 
     return SizedBox(
-      height: 72,
+      height: 76,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
