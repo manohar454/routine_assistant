@@ -379,271 +379,280 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
             child: child,
           ),
           child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final viewInsets = MediaQuery.of(context).viewInsets.bottom;
-              final availH = constraints.maxHeight - viewInsets;
-              return SingleChildScrollView(
-                reverse: true, // keep bottom (math gate) in view when keyboard opens
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: availH),
-                  child: IntrinsicHeight(
-                    child: Column(
-            children: [
-              // ── Escalation banner ──
-              if (_escalationLevel > 0)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 400),
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  color: _accentColor.withValues(alpha: 0.25),
-                  child: Text(
-                    _escalationLabel,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: _accentColor,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ),
-
-              // ── Header: time + motivational quote ──
-              Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Pulsing sun icon
-                      ScaleTransition(
-                        scale: _pulse,
-                        child: const Text('🌅', style: TextStyle(fontSize: 64)),
-                      ),
-                      const SizedBox(height: 16),
-                      // Clock
-                      Text(
-                        '$h:$m:$s',
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 56,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFE8F5E9),
-                          letterSpacing: 4,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      // Motivational quote
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          borderRadius:
-                              const BorderRadius.all(AppRadius.lg),
-                        ),
-                        child: Text(
-                          '"$_motive"',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: Color(0xFFB2DFDB),
-                            fontStyle: FontStyle.italic,
-                            height: 1.5,
-                          ),
-                        ),
-                      ),
-                      if (_nowPlaying != null) ...[
-                        const SizedBox(height: 12),
-                        GestureDetector(
-                          onTap: _toggleMusic,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _musicPlaying
-                                    ? Icons.pause_circle
-                                    : Icons.play_circle,
-                                color: const Color(0xFF80CBC4),
-                                size: 20,
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  _nowPlaying!,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF80CBC4),
-                                  ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+                final availH = constraints.maxHeight - viewInsets;
+                return SingleChildScrollView(
+                  // reverse: keep math gate visible when keyboard opens
+                  reverse: true,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: availH),
+                    child: IntrinsicHeight(
+                      child: Column(
+                        children: [
+                          // ── Escalation banner ──
+                          if (_escalationLevel > 0)
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 400),
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              color: _accentColor.withValues(alpha: 0.25),
+                              child: Text(
+                                _escalationLabel,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: _accentColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                  letterSpacing: 1,
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-              ),
+                            ),
 
-              // ── Math gate ──
-              Container(
-                  margin: const EdgeInsets.all(20),
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    borderRadius: const BorderRadius.all(AppRadius.xl),
-                    border: Border.all(
-                      color: _wrongAnswer
-                          ? AppColors.clay.withValues(alpha: 0.7)
-                          : Colors.white.withValues(alpha: 0.12),
-                      width: 1.5,
+                          // ── Header: time + motivational quote ──
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                // Pulsing sun icon
+                                ScaleTransition(
+                                  scale: _pulse,
+                                  child: const Text('🌅',
+                                      style: TextStyle(fontSize: 64)),
+                                ),
+                                const SizedBox(height: 16),
+                                // Clock
+                                Text(
+                                  '$h:$m:$s',
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 56,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFE8F5E9),
+                                    letterSpacing: 4,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                // Motivational quote
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 20, vertical: 14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.08),
+                                    borderRadius:
+                                        const BorderRadius.all(AppRadius.lg),
+                                  ),
+                                  child: Text(
+                                    '"$_motive"',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      color: Color(0xFFB2DFDB),
+                                      fontStyle: FontStyle.italic,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                ),
+                                if (_nowPlaying != null) ...[
+                                  const SizedBox(height: 12),
+                                  GestureDetector(
+                                    onTap: _toggleMusic,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _musicPlaying
+                                              ? Icons.pause_circle
+                                              : Icons.play_circle,
+                                          color: const Color(0xFF80CBC4),
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            _nowPlaying!,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              color: Color(0xFF80CBC4),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+
+                          // ── Math gate ──
+                          Container(
+                            margin: const EdgeInsets.all(20),
+                            padding: const EdgeInsets.all(28),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.06),
+                              borderRadius:
+                                  const BorderRadius.all(AppRadius.xl),
+                              border: Border.all(
+                                color: _wrongAnswer
+                                    ? AppColors.clay.withValues(alpha: 0.7)
+                                    : Colors.white.withValues(alpha: 0.12),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text(
+                                  'Solve to dismiss',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF80CBC4),
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: _wrongAnswer
+                                        ? AppColors.clay.withValues(alpha: 0.15)
+                                        : Colors.transparent,
+                                    borderRadius:
+                                        const BorderRadius.all(AppRadius.md),
+                                  ),
+                                  child: Text(
+                                    _problemText,
+                                    style: const TextStyle(
+                                      fontSize: 40,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFFE8F5E9),
+                                      letterSpacing: 2,
+                                    ),
+                                  ),
+                                ),
+                                if (_wrongAnswer)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      'Not quite — try again!',
+                                      style: TextStyle(
+                                        color: AppColors.clay,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(height: 20),
+                                // Number input
+                                TextField(
+                                  controller: _inputController,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          signed: true),
+                                  textAlign: TextAlign.center,
+                                  autofocus: true,
+                                  style: const TextStyle(
+                                    color: Color(0xFFE8F5E9),
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: 'Your answer',
+                                    hintStyle: TextStyle(
+                                      color: const Color(0xFFE8F5E9)
+                                          .withValues(alpha: 0.3),
+                                      fontSize: 18,
+                                    ),
+                                    filled: true,
+                                    fillColor:
+                                        Colors.white.withValues(alpha: 0.08),
+                                    border: OutlineInputBorder(
+                                      borderRadius:
+                                          const BorderRadius.all(AppRadius.md),
+                                      borderSide: BorderSide(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.2),
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius:
+                                          const BorderRadius.all(AppRadius.md),
+                                      borderSide: BorderSide(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.2),
+                                      ),
+                                    ),
+                                    focusedBorder: const OutlineInputBorder(
+                                      borderRadius:
+                                          BorderRadius.all(AppRadius.md),
+                                      borderSide: BorderSide(
+                                        color: AppColors.moss,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    contentPadding:
+                                        const EdgeInsets.symmetric(
+                                            horizontal: 20, vertical: 16),
+                                  ),
+                                  onSubmitted: (_) => _checkAnswer(),
+                                ),
+                                const SizedBox(height: 16),
+                                // Submit button
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton(
+                                    onPressed: _checkAnswer,
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppColors.moss,
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 16),
+                                      shape: const RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.all(AppRadius.md),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'I\'m Awake! ✓',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // ── Repeat TTS ──
+                          Padding(
+                            padding:
+                                EdgeInsets.only(bottom: 16 + viewInsets),
+                            child: TextButton.icon(
+                              onPressed: _speakGreeting,
+                              icon: const Icon(Icons.volume_up,
+                                  color: Color(0xFF80CBC4), size: 18),
+                              label: const Text(
+                                'Hear greeting again',
+                                style: TextStyle(
+                                    color: Color(0xFF80CBC4), fontSize: 13),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        'Solve to dismiss',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF80CBC4),
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _wrongAnswer
-                              ? AppColors.clay.withValues(alpha: 0.15)
-                              : Colors.transparent,
-                          borderRadius:
-                              const BorderRadius.all(AppRadius.md),
-                        ),
-                        child: Text(
-                          _problemText,
-                          style: const TextStyle(
-                            fontSize: 40,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFFE8F5E9),
-                            letterSpacing: 2,
-                          ),
-                        ),
-                      ),
-                      if (_wrongAnswer)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 6),
-                          child: Text(
-                            'Not quite — try again!',
-                            style: TextStyle(
-                              color: AppColors.clay,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 20),
-                      // Number input
-                      TextField(
-                        controller: _inputController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            signed: true),
-                        textAlign: TextAlign.center,
-                        autofocus: true,
-                        style: const TextStyle(
-                          color: Color(0xFFE8F5E9),
-                          fontSize: 28,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'Your answer',
-                          hintStyle: TextStyle(
-                            color:
-                                const Color(0xFFE8F5E9).withValues(alpha: 0.3),
-                            fontSize: 18,
-                          ),
-                          filled: true,
-                          fillColor: Colors.white.withValues(alpha: 0.08),
-                          border: OutlineInputBorder(
-                            borderRadius:
-                                const BorderRadius.all(AppRadius.md),
-                            borderSide: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.2),
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius:
-                                const BorderRadius.all(AppRadius.md),
-                            borderSide: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.2),
-                            ),
-                          ),
-                          focusedBorder: const OutlineInputBorder(
-                            borderRadius: BorderRadius.all(AppRadius.md),
-                            borderSide: BorderSide(
-                              color: AppColors.moss,
-                              width: 2,
-                            ),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 16),
-                        ),
-                        onSubmitted: (_) => _checkAnswer(),
-                      ),
-                      const SizedBox(height: 16),
-                      // Submit button
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: _checkAnswer,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.moss,
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 16),
-                            shape: const RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.all(AppRadius.md),
-                            ),
-                          ),
-                          child: const Text(
-                            'I\'m Awake! ✓',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // ── Repeat TTS ──
-              Padding(
-                padding: EdgeInsets.only(bottom: 16 + viewInsets),
-                child: TextButton.icon(
-                  onPressed: _speakGreeting,
-                  icon: const Icon(Icons.volume_up,
-                      color: Color(0xFF80CBC4), size: 18),
-                  label: const Text(
-                    'Hear greeting again',
-                    style: TextStyle(
-                        color: Color(0xFF80CBC4), fontSize: 13),
-                  ),
-                ),
-              ),
-            ],
+                );
+              },
+            ),
           ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
         ),
       ),
     );
