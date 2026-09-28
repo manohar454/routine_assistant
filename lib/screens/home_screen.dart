@@ -18,6 +18,7 @@ import '../widgets/day_spine_timeline.dart';
 import '../widgets/mini_player.dart';
 import '../models/workout_models.dart';
 import 'add_task_screen.dart';
+import 'one_time_reminder_screen.dart';
 import 'workout_session_screen.dart';
 import 'workout_progress_screen.dart';
 import 'workout_plan_editor_screen.dart';
@@ -247,6 +248,40 @@ class _HomeScreenState extends State<HomeScreen>
               WorkoutSessionScreen(templateId: todaysTemplate.first.id),
         ),
       );
+    }
+  }
+
+  Future<void> _editTask(Task task) async {
+    final result = await Navigator.push<Task>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OneTimeReminderScreen(task: task),
+      ),
+    );
+    if (result != null) await _loadToday();
+  }
+
+  Future<void> _deleteTask(Task task) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete task?'),
+        content: Text('Remove "${task.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await DatabaseHelper.instance.deleteTask(task.id);
+      await _loadToday();
     }
   }
 
@@ -532,6 +567,8 @@ class _HomeScreenState extends State<HomeScreen>
                     child: DaySpineTimeline(
                       tasks: _todayTasks,
                       onCheckIn: _checkIn,
+                      onEdit: _editTask,
+                      onDelete: _deleteTask,
                     ),
                   ),
                 ),

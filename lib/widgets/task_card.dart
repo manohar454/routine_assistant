@@ -6,8 +6,16 @@ import '../theme/app_theme.dart';
 class TaskCard extends StatelessWidget {
   final Task task;
   final VoidCallback onCheckIn;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
-  const TaskCard({super.key, required this.task, required this.onCheckIn});
+  const TaskCard({
+    super.key,
+    required this.task,
+    required this.onCheckIn,
+    this.onEdit,
+    this.onDelete,
+  });
 
   String get _startLabel {
     final h = task.plannedStart.hour.toString().padLeft(2, '0');
@@ -73,6 +81,7 @@ class TaskCard extends StatelessWidget {
     final catColor = _categoryColor(isDark);
 
     return GestureDetector(
+      onTap: onEdit,
       onLongPress: isDone
           ? null
           : () {
@@ -199,6 +208,10 @@ class TaskCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
+            // Action buttons column
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
             // Check button
             GestureDetector(
               onTap: isDone ? null : onCheckIn,
@@ -232,6 +245,19 @@ class TaskCard extends StatelessWidget {
                           : AppColors.mistDark),
                 ),
               ),
+            ),
+            if (onDelete != null) ...[
+              const SizedBox(height: 6),
+              GestureDetector(
+                onTap: onDelete,
+                child: Icon(
+                  Icons.delete_outline,
+                  size: 18,
+                  color: isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle,
+                ),
+              ),
+            ],
+              ],
             ),
           ],
         ),

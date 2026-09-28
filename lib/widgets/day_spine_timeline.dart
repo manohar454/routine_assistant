@@ -6,11 +6,15 @@ import 'task_card.dart';
 class DaySpineTimeline extends StatelessWidget {
   final List<Task> tasks;
   final void Function(Task) onCheckIn;
+  final void Function(Task)? onEdit;
+  final void Function(Task)? onDelete;
 
   const DaySpineTimeline({
     super.key,
     required this.tasks,
     required this.onCheckIn,
+    this.onEdit,
+    this.onDelete,
   });
 
   @override
@@ -29,6 +33,8 @@ class DaySpineTimeline extends StatelessWidget {
             isLast: i == tasks.length - 1,
             isDark: isDark,
             onCheckIn: () => onCheckIn(tasks[i]),
+            onEdit: onEdit != null ? () => onEdit!(tasks[i]) : null,
+            onDelete: onDelete != null ? () => onDelete!(tasks[i]) : null,
           ),
       ],
     );
@@ -84,12 +90,16 @@ class _SpineNode extends StatelessWidget {
   final bool isLast;
   final bool isDark;
   final VoidCallback onCheckIn;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const _SpineNode({
     required this.task,
     required this.isLast,
     required this.isDark,
     required this.onCheckIn,
+    this.onEdit,
+    this.onDelete,
   });
 
   bool get _isNow {
@@ -156,7 +166,7 @@ class _SpineNode extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
-              child: TaskCard(task: task, onCheckIn: onCheckIn),
+              child: TaskCard(task: task, onCheckIn: onCheckIn, onEdit: onEdit, onDelete: onDelete),
             ),
           ),
         ],
