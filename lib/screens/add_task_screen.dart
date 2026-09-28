@@ -128,7 +128,8 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     unawaited(_extractLlmPreferences(task.name, _category));
 
     if (plannedStart.isAfter(DateTime.now())) {
-      await NotificationService.instance.scheduleTaskReminder(
+      await NotificationService.instance.scheduleTaskReminderWithActions(
+        taskId: task.id,
         notificationId: task.id.hashCode,
         title: task.name,
         body: task.voiceMessage ?? 'Time for ${task.name}',

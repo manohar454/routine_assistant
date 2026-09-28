@@ -6,24 +6,94 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:flutter_timezone/flutter_timezone.dart';
 import '../engine/preference_learning_engine.dart';
 import '../db/database_helper.dart';
+import '../models/task.dart';
 import '../models/routine_models.dart';
 import '../screens/wake_alarm_screen.dart';
 import '../screens/routine_confirm_screen.dart';
+import 'tts_service.dart';
 
 /// Global navigator key — allows notification taps to push routes
 /// without a BuildContext.
 final GlobalKey<NavigatorState> routineNavigatorKey =
     GlobalKey<NavigatorState>();
 
-/// Top-level background callback (must be a top-level function).
+/// Top-level background callback — handles both notification taps and
+/// action-button taps when the app is in the background or terminated.
 @pragma('vm:entry-point')
 void _onNotificationTapBackground(NotificationResponse response) {
-  // Background taps: store payload for app to handle on next launch.
-  // The foreground handler covers most real-world cases.
+  _handleTaskAction(response);
 }
 
 void _onNotificationTap(NotificationResponse response) {
+  // Action button tapped (Done / Snooze) — handle without opening app.
+  if (response.actionId != null) {
+    _handleTaskAction(response);
+    return;
+  }
   _handleNotificationPayload(response.payload);
+}
+
+/// Handles Done / Snooze action buttons from task notifications.
+/// Works both foreground and background (top-level function).
+void _handleTaskAction(NotificationResponse response) {
+  final actionId = response.actionId;
+  final payload  = response.payload;
+  if (actionId == null || payload == null) return;
+
+  // Only handle task:id payloads here.
+  if (!payload.startsWith('task:')) return;
+  final taskId = payload.substring(5); // strip 'task:'
+
+  if (actionId == 'done') {
+    _markTaskDoneFromNotification(taskId);
+  } else if (actionId == 'snooze') {
+    _snoozeTaskFromNotification(taskId);
+  }
+}
+
+/// Marks a task completed directly from a notification action.
+Future<void> _markTaskDoneFromNotification(String taskId) async {
+  final db = DatabaseHelper.instance;
+  final tasks = await db.getTasksForDay(DateTime.now());
+  final task = tasks.cast<Task?>().firstWhere(
+    (t) => t?.id == taskId,
+    orElse: () => null,
+  );
+  if (task == null) return;
+
+  task.status    = TaskStatus.completed;
+  task.actualEnd = DateTime.now();
+  await db.updateTask(task);
+
+  // Show a brief confirmation notification.
+  await NotificationService.instance._showCompletionConfirm(task.name);
+
+  // Speak feedback if app is in foreground — silently no-op if not.
+  TtsService.instance.speak('Great job finishing ${task.name}!');
+}
+
+/// Snoozes a task by 10 minutes from a notification action.
+Future<void> _snoozeTaskFromNotification(String taskId) async {
+  final db = DatabaseHelper.instance;
+  final tasks = await db.getTasksForDay(DateTime.now());
+  final task = tasks.cast<Task?>().firstWhere(
+    (t) => t?.id == taskId,
+    orElse: () => null,
+  );
+  if (task == null) return;
+
+  task.plannedStart = DateTime.now().add(const Duration(minutes: 10));
+  await db.updateTask(task);
+
+  // Re-schedule the reminder for the new time.
+  await NotificationService.instance.scheduleTaskReminderWithActions(
+    taskId:        task.id,
+    notificationId: task.id.hashCode & 0x7fffffff,
+    title:         task.name,
+    body:          task.voiceMessage ?? 'Time for ${task.name}',
+    scheduledTime: task.plannedStart,
+    taskCategory:  task.category,
+  );
 }
 
 void _handleNotificationPayload(String? payload) {
@@ -130,6 +200,12 @@ class NotificationService {
     if (androidPlugin == null) return;
 
     const channels = [
+      AndroidNotificationChannel(
+        'task_actions',
+        'Task Reminders',
+        description: 'Task reminders with Done and Snooze actions',
+        importance: Importance.max,
+      ),
       AndroidNotificationChannel(
         'routine_channel',
         'Routine Reminders',
@@ -289,6 +365,115 @@ class NotificationService {
         rethrow;
       }
     }
+  }
+
+  /// Schedules a task reminder with **Done ✓** and **Snooze 10 min** action
+  /// buttons directly on the notification.
+  ///
+  /// Tapping "Done" marks the task completed without opening the app.
+  /// Tapping "Snooze" reschedules the task 10 minutes from now.
+  /// Tapping the notification body opens the app normally.
+  ///
+  /// Also speaks the task name + voiceMessage via TTS when the notification
+  /// fires (foreground only — background TTS is silently skipped).
+  Future<void> scheduleTaskReminderWithActions({
+    required String taskId,
+    required int notificationId,
+    required String title,
+    required String body,
+    required DateTime scheduledTime,
+    String? taskCategory,
+  }) async {
+    DateTime fireAt = scheduledTime;
+    bool silent = false;
+
+    if (taskCategory != null) {
+      final engine = PreferenceLearningEngine.instance;
+      final leadMinutes = await engine.getLeadTimeMinutes(taskCategory);
+      if (leadMinutes > 0) {
+        fireAt = scheduledTime.subtract(Duration(minutes: leadMinutes));
+        final earliest = DateTime.now().add(const Duration(seconds: 5));
+        if (fireAt.isBefore(earliest)) fireAt = earliest;
+      }
+      silent = await engine.isVoiceDisabled(taskCategory);
+    }
+
+    final tzTime = tz.TZDateTime.from(fireAt, tz.local);
+
+    const doneAction = AndroidNotificationAction(
+      'done',
+      'Done ✓',
+      showsUserInterface: false,
+      cancelNotification: true,
+    );
+    const snoozeAction = AndroidNotificationAction(
+      'snooze',
+      'Snooze 10 min',
+      showsUserInterface: false,
+      cancelNotification: true,
+    );
+
+    final androidDetails = AndroidNotificationDetails(
+      'task_actions',
+      'Task Reminders',
+      channelDescription: 'Task reminders with Done and Snooze actions',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: !silent,
+      enableVibration: !silent,
+      actions: const [doneAction, snoozeAction],
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    try {
+      await _plugin.zonedSchedule(
+        notificationId,
+        title,
+        body,
+        tzTime,
+        details,
+        payload: 'task:$taskId',
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } on PlatformException catch (e) {
+      if (e.code == 'exact_alarms_not_permitted') {
+        await _plugin.zonedSchedule(
+          notificationId,
+          title,
+          body,
+          tzTime,
+          details,
+          payload: 'task:$taskId',
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+        );
+      } else {
+        rethrow;
+      }
+    }
+  }
+
+  /// Shows a brief "completed" confirmation notification.
+  Future<void> _showCompletionConfirm(String taskName) async {
+    const androidDetails = AndroidNotificationDetails(
+      'task_actions',
+      'Task Reminders',
+      channelDescription: 'Task reminders with Done and Snooze actions',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      playSound: false,
+      enableVibration: false,
+    );
+    await _plugin.show(
+      ('done_$taskName').hashCode & 0x7fffffff,
+      '✓ $taskName',
+      'Marked as done — great work!',
+      const NotificationDetails(android: androidDetails),
+    );
   }
 
   /// Schedules a check-in notification for a task.

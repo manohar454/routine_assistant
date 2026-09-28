@@ -137,7 +137,8 @@ class _OneTimeReminderScreenState extends State<OneTimeReminderScreen> {
       // Cancel old notification and reschedule.
       final notifId = task.id.hashCode.abs() % 2147483647;
       await NotificationService.instance.cancel(notifId);
-      await NotificationService.instance.scheduleTaskReminder(
+      await NotificationService.instance.scheduleTaskReminderWithActions(
+        taskId: task.id,
         notificationId: notifId,
         title: label,
         body: note.isEmpty ? 'Time for your reminder!' : note,

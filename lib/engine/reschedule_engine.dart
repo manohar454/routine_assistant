@@ -68,7 +68,8 @@ class RescheduleEngine {
 
     // Guard: never schedule notifications in the past.
     if (task.plannedStart.isAfter(now)) {
-      await notifications.scheduleTaskReminder(
+      await notifications.scheduleTaskReminderWithActions(
+        taskId: task.id,
         notificationId: baseId,
         title: task.name,
         body: task.voiceMessage ?? 'Time for ${task.name}',
