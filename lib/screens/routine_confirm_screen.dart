@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/routine_models.dart';
 import '../services/routine_confirmation_service.dart';
 import '../services/tts_service.dart';
+import '../theme/app_theme.dart';
 
 /// Full-screen confirmation page opened when user taps a routine notification.
 ///
@@ -106,7 +107,11 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final isDark  = context.isDark;
+    final text    = context.text;
+    final accentBg = isDark
+        ? AppColors.darkDeep.withValues(alpha: 0.18)
+        : AppColors.deep.withValues(alpha: 0.10);
     final isMeal = widget.entry.type.isMeal;
     final isWater = widget.entry.type.isWater;
     final presets = RoutineConfirmationService.messFoodPresets;
@@ -142,17 +147,19 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
             padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
+              color: accentBg,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.schedule, size: 16),
+                Icon(Icons.schedule,
+                    size: 16,
+                    color: isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
                 const SizedBox(width: 6),
                 Text(
                   'Scheduled: ${widget.entry.formattedTime}',
-                  style: theme.textTheme.bodySmall,
+                  style: text.bodySmall,
                 ),
               ],
             ),
@@ -162,7 +169,8 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
           // Water log
           if (isWater) ...[
             Text('Water logged (ml)',
-                style: theme.textTheme.titleSmall),
+                style: text.titleSmall?.copyWith(
+                    color: isDark ? AppColors.darkInk : AppColors.ink)),
             const SizedBox(height: 8),
             Row(children: [
               Expanded(
@@ -194,7 +202,8 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
           // Food log
           if (isMeal) ...[
             Text('What did you eat?',
-                style: theme.textTheme.titleSmall),
+                style: text.titleSmall?.copyWith(
+                    color: isDark ? AppColors.darkInk : AppColors.ink)),
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -207,8 +216,7 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
                   onSelected: (v) => setState(() => v
                       ? _selectedFood.add(item)
                       : _selectedFood.remove(item)),
-                  selectedColor:
-                      theme.colorScheme.primaryContainer,
+                  selectedColor: accentBg,
                 );
               }).toList(),
             ),
@@ -269,7 +277,10 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Quick options:',
-                          style: theme.textTheme.labelSmall),
+                          style: text.labelSmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkInkSubtle
+                                  : AppColors.inkSubtle)),
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
@@ -339,7 +350,7 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
               child: Text(
                 'Skip for today',
                 style: TextStyle(
-                    color: theme.colorScheme.error, fontSize: 13),
+                    color: isDark ? AppColors.darkClay : AppColors.clay, fontSize: 13),
               ),
             ),
           ),
