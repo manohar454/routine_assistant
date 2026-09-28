@@ -165,7 +165,7 @@ class _SpineNode extends StatelessWidget {
           // Task card
           Expanded(
             child: Padding(
-              padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
               child: TaskCard(task: task, onCheckIn: onCheckIn, onEdit: onEdit, onDelete: onDelete),
             ),
           ),

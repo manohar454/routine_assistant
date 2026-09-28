@@ -689,7 +689,7 @@ class _HomeScreenState extends State<HomeScreen>
                 // ── Today's tasks heading ───────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 28, 20, 12),
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
                     child: Row(
                       children: [
                         Text(
@@ -983,47 +983,15 @@ class _QuickActions extends StatelessWidget {
           onTap: onGoals,
         ),
         const SizedBox(height: 12),
-        // Analytics + Daily Report row
-        Row(
-          children: [
-            Expanded(
-              child: _NavCard(
-                icon: Icons.bar_chart_rounded,
-                label: 'Analytics',
-                sub: 'Trends & burnout',
-                isDark: isDark,
-                onTap: onAnalytics,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _NavCard(
-                icon: Icons.summarize_rounded,
-                label: 'Daily Report',
-                sub: 'Summary & alerts',
-                isDark: isDark,
-                onTap: onDailyReport,
-              ),
-            ),
+        // Nav shortcuts — compact horizontal chips
+        _NavChipRow(
+          isDark: isDark,
+          items: [
+            _NavChipItem(Icons.bar_chart_rounded, 'Analytics', onAnalytics),
+            _NavChipItem(Icons.summarize_rounded, 'Report', onDailyReport),
+            _NavChipItem(Icons.history_rounded, 'Decisions', onDecisionLog),
+            _NavChipItem(Icons.record_voice_over_rounded, 'Routine', onRoutine),
           ],
-        ),
-        const SizedBox(height: 10),
-        // Decision log card
-        _NavCard(
-          icon: Icons.history_rounded,
-          label: 'Decision Log',
-          sub: 'Why the AI rescheduled',
-          isDark: isDark,
-          onTap: onDecisionLog,
-        ),
-        const SizedBox(height: 10),
-        // AI Voice Companion / Routine Timetable
-        _NavCard(
-          icon: Icons.record_voice_over_rounded,
-          label: 'Voice Companion',
-          sub: 'Daily routine & alarms',
-          isDark: isDark,
-          onTap: onRoutine,
         ),
         const SizedBox(height: 12),
         // Routine day progress
@@ -1041,41 +1009,34 @@ class _QuickActions extends StatelessWidget {
             Expanded(
               child: _StatCard(
                 icon: Icons.water_drop_rounded,
-                iconColor: isDark
-                    ? AppColors.darkDeep
-                    : AppColors.deepLight,
+                iconColor: isDark ? AppColors.darkDeep : AppColors.deepLight,
                 value: waterLabel,
                 label: 'Water',
-                sub: '${(waterRatio * 100).round()}% of goal',
+                sub: '${(waterRatio * 100).round()}%',
                 progressRatio: waterRatio,
-                progressColor:
-                    isDark ? AppColors.darkDeep : AppColors.deepLight,
+                progressColor: isDark ? AppColors.darkDeep : AppColors.deepLight,
                 isDark: isDark,
                 onTap: onWater,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: _StatCard(
                 icon: Icons.bedtime_rounded,
-                iconColor:
-                    isDark ? AppColors.darkMoss : AppColors.moss,
+                iconColor: isDark ? AppColors.darkMoss : AppColors.moss,
                 value: sleepLabel,
                 label: 'Sleep',
-                sub: 'Last night',
                 isDark: isDark,
                 onTap: onSleep,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: _StatCard(
                 icon: Icons.restaurant_rounded,
-                iconColor:
-                    isDark ? AppColors.darkAmber : AppColors.amber,
+                iconColor: isDark ? AppColors.darkAmber : AppColors.amber,
                 value: '$meals',
                 label: 'Meals',
-                sub: 'Today',
                 isDark: isDark,
                 onTap: onMeals,
               ),
@@ -1204,20 +1165,18 @@ class _RoutineProgressCard extends StatelessWidget {
   }
 }
 
-class _NavCard extends StatelessWidget {
+class _NavChipItem {
   final IconData icon;
   final String label;
-  final String sub;
-  final bool isDark;
   final VoidCallback onTap;
+  const _NavChipItem(this.icon, this.label, this.onTap);
+}
 
-  const _NavCard({
-    required this.icon,
-    required this.label,
-    required this.sub,
-    required this.isDark,
-    required this.onTap,
-  });
+class _NavChipRow extends StatelessWidget {
+  final bool isDark;
+  final List<_NavChipItem> items;
+
+  const _NavChipRow({required this.isDark, required this.items});
 
   @override
   Widget build(BuildContext context) {
@@ -1226,41 +1185,47 @@ class _NavCard extends StatelessWidget {
     final accent = isDark ? AppColors.darkDeep : AppColors.deep;
     final iconBg = isDark ? const Color(0xFF1D2535) : const Color(0xFFEEF2FF);
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: const BorderRadius.all(AppRadius.lg),
-          border: Border.all(color: border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
+    return SizedBox(
+      height: 72,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (ctx, i) {
+          final item = items[i];
+          return GestureDetector(
+            onTap: item.onTap,
+            child: Container(
+              width: 80,
+              padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
-                color: iconBg,
-                borderRadius: const BorderRadius.all(AppRadius.sm),
+                color: bg,
+                borderRadius: const BorderRadius.all(AppRadius.md),
+                border: Border.all(color: border),
               ),
-              child: Icon(icon, color: accent, size: 18),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(label, style: context.text.titleSmall),
-                  const SizedBox(height: 1),
-                  Text(sub,
-                      style: context.text.bodySmall,
-                      overflow: TextOverflow.ellipsis),
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: iconBg,
+                      borderRadius: const BorderRadius.all(AppRadius.sm),
+                    ),
+                    child: Icon(item.icon, color: accent, size: 16),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    item.label,
+                    style: context.text.labelSmall?.copyWith(fontSize: 10),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -1441,7 +1406,7 @@ class _StatCard extends StatelessWidget {
   final Color iconColor;
   final String value;
   final String label;
-  final String sub;
+  final String? sub;
   final double? progressRatio;
   final Color? progressColor;
   final bool isDark;
@@ -1452,7 +1417,7 @@ class _StatCard extends StatelessWidget {
     required this.iconColor,
     required this.value,
     required this.label,
-    required this.sub,
+    this.sub,
     this.progressRatio,
     this.progressColor,
     required this.isDark,
@@ -1467,7 +1432,7 @@ class _StatCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: const BorderRadius.all(AppRadius.md),
@@ -1476,32 +1441,38 @@ class _StatCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: iconColor, size: 18),
-            const SizedBox(height: 10),
+            Icon(icon, color: iconColor, size: 16),
+            const SizedBox(height: 8),
             Text(
               value,
-              style: context.text.headlineSmall?.copyWith(fontSize: 17),
+              style: context.text.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
             ),
-            const SizedBox(height: 2),
-            Text(label, style: context.text.labelSmall),
+            const SizedBox(height: 1),
+            Text(
+              label,
+              style: context.text.labelSmall?.copyWith(fontSize: 10),
+            ),
             if (progressRatio != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               ClipRRect(
                 borderRadius: const BorderRadius.all(AppRadius.sm),
                 child: LinearProgressIndicator(
                   value: progressRatio,
                   minHeight: 3,
-                  backgroundColor:
-                      isDark ? AppColors.darkBorder : AppColors.mist,
-                  valueColor:
-                      AlwaysStoppedAnimation(progressColor!),
+                  backgroundColor: isDark ? AppColors.darkBorder : AppColors.mist,
+                  valueColor: AlwaysStoppedAnimation(progressColor!),
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(sub, style: context.text.bodySmall),
-            ] else ...[
+              if (sub != null) ...[
+                const SizedBox(height: 3),
+                Text(sub!, style: context.text.bodySmall?.copyWith(fontSize: 9)),
+              ],
+            ] else if (sub != null) ...[
               const SizedBox(height: 2),
-              Text(sub, style: context.text.bodySmall),
+              Text(sub!, style: context.text.bodySmall?.copyWith(fontSize: 9)),
             ],
           ],
         ),
