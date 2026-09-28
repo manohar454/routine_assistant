@@ -23,7 +23,7 @@ class LlmService {
   /// Call once in main() before runApp — registers the LiteRt inference engine.
   static Future<void> initialize() async {
     await FlutterGemma.initialize(
-      inferenceEngines: [LiteRtEngine()],
+      inferenceEngines: [LiteRtLmEngine()],
     );
   }
 
