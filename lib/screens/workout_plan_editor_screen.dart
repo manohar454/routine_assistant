@@ -651,7 +651,9 @@ class _DayStrip extends StatelessWidget {
       children: List.generate(7, (i) {
         final day = i + 1;
         final isSet = filled.contains(day);
-        final template = isSet ? templates.firstWhere((t) => t.dayOfWeek == day) : null;
+        final template = isSet
+            ? templates.where((t) => t.dayOfWeek == day).firstOrNull
+            : null;
         final isRest = template?.isRestDay ?? false;
         return Expanded(
           child: Column(

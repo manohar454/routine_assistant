@@ -1,5 +1,5 @@
-name: routine_assistant
-description: A calm, voice-driven daily routine assistant — reliable reminders, check-ins, and rescheduling.
+name: rhythmiq
+description: Rhythmiq — an adaptive AI daily routine coach with on-device intelligence, voice check-ins, and burnout awareness.
 publish_to: 'none'
 version: 0.1.0
 
@@ -26,6 +26,7 @@ dependencies:
   sensors_plus: ^6.0.0                    # accelerometer for motion/activity sensing (Phase 3)
   device_calendar: ^4.3.0                 # read device calendar events for density signal (Phase 3)
   permission_handler: ^11.3.0             # runtime permissions for calendar + activity (Phase 3)
+  file_picker: ^8.1.2                    # pick local audio files for music library
 
 dev_dependencies:
   flutter_lints: ^6.0.0
@@ -34,3 +35,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo.svg

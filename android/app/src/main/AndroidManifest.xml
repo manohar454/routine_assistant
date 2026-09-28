@@ -25,7 +25,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="routine_assistant"
+        android:label="Rhythmiq"
         android:icon="@mipmap/ic_launcher">
 
         <!-- Main Flutter activity -->

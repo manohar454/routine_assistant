@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,8 @@ import '../engine/reschedule_engine.dart';
 import '../engine/adaptive_learning_engine.dart';
 import '../engine/preference_learning_engine.dart';
 import '../engine/burnout_forecast_engine.dart';
+import '../engine/day_clustering_engine.dart';
+import '../models/day_clustering_models.dart';
 import '../models/preference_learning_models.dart';
 import '../services/tts_service.dart';
 import '../services/music_service.dart';
@@ -25,6 +28,7 @@ import 'goal_progress_screen.dart';
 import 'analytics_screen.dart';
 import 'daily_report_screen.dart';
 import 'llm_settings_screen.dart';
+import 'app_settings_screen.dart';
 import 'reasoning_trace_screen.dart';
 import 'routine_timetable_screen.dart';
 import '../models/routine_models.dart';
@@ -45,13 +49,14 @@ class _HomeScreenState extends State<HomeScreen>
   Task? _activeMusicTask;
   bool _musicPlaying = false;
   int _todayWaterMl = 0;
-  int _waterGoalMl = 2500;
+  int _waterGoalMl = 3000;
   Duration? _lastNightSleep;
   int _mealsLoggedToday = 0;
   int _activeGoalCount = 0;
   int _routineConfirmedCount = 0;
   int _routineTotalCount = 0;
   BurnoutForecast? _burnoutForecast;
+  DayClassification? _dayClassification;
   List<TaskImportanceWeight> _newlyLearnedPrefs = [];
   final Set<String> _dismissedPrefCategories = {};
 
@@ -83,10 +88,26 @@ class _HomeScreenState extends State<HomeScreen>
     await _loadSummaries();
     await _checkForActiveMoodTask(tasks);
     final forecast = await BurnoutForecastEngine.instance.forecast();
+    // Persist every forecast so analytics can show historical burnout trend.
+    unawaited(DatabaseHelper.instance.saveBurnoutForecast(
+      forecast.riskScore,
+      forecast.confidence,
+      forecast.level.name,
+      forecast.contributingReasons.join('; '),
+    ));
     final allWeights = await PreferenceLearningEngine.instance.getAllWeightsSorted();
+    // Load the latest day classification (written by WakeAlarmScreen on dismiss).
+    final clusters = await DatabaseHelper.instance.getAllDayClusters();
+    final recentVectors = await DatabaseHelper.instance.getRecentDayVectors(days: 1);
+    DayClassification? classification;
+    if (recentVectors.isNotEmpty && clusters.isNotEmpty) {
+      classification = await DayClusteringEngine.instance
+          .classifyToday(recentVectors.first);
+    }
     if (!mounted) return;
     setState(() {
       _burnoutForecast = forecast;
+      _dayClassification = classification;
       _newlyLearnedPrefs = allWeights
           .where((w) =>
               w.isReliable &&
@@ -105,12 +126,14 @@ class _HomeScreenState extends State<HomeScreen>
     final goalPlans = await db.getActiveGoalPlans();
     final routineLogs = await db.getTodayRoutineLogs();
     final todayEntries = await db.getRoutineEntriesForToday();
+    final waterGoalStr = await db.getSetting('water_daily_goal_ml');
     if (!mounted) return;
     final confirmedCount = routineLogs
         .where((l) => l['confirmedAt'] != null && l['skipped'] != 1)
         .length;
     setState(() {
       _todayWaterMl = waterMl;
+      _waterGoalMl = int.tryParse(waterGoalStr ?? '') ?? 3000;
       _lastNightSleep = lastNight?.duration;
       _mealsLoggedToday = mealLogs.length;
       _activeGoalCount = goalPlans.length;
@@ -380,6 +403,19 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
 
+                // ── Day-type classification chip ─────────────────────────
+                if (_dayClassification != null &&
+                    _dayClassification!.hasEnoughData)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                      child: _DayTypeChip(
+                        classification: _dayClassification!,
+                        isDark: isDark,
+                      ),
+                    ),
+                  ),
+
                 // ── Burnout card ────────────────────────────────────────
                 if (_burnoutForecast != null &&
                     _burnoutForecast!.shouldSurface &&
@@ -574,19 +610,39 @@ class _Header extends StatelessWidget {
           children: [
             _ProgressRing(ratio: progressRatio, isDark: isDark),
             const SizedBox(height: 6),
-            GestureDetector(
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => const LlmSettingsScreen()),
-              ),
-              child: Icon(
-                Icons.auto_awesome_rounded,
-                size: 16,
-                color: isDark
-                    ? AppColors.darkInkSubtle
-                    : AppColors.inkSubtle,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const LlmSettingsScreen()),
+                  ),
+                  child: Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 16,
+                    color: isDark
+                        ? AppColors.darkInkSubtle
+                        : AppColors.inkSubtle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const AppSettingsScreen()),
+                  ),
+                  child: Icon(
+                    Icons.settings_rounded,
+                    size: 16,
+                    color: isDark
+                        ? AppColors.darkInkSubtle
+                        : AppColors.inkSubtle,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1327,6 +1383,85 @@ class _PrefConfirmBanner extends StatelessWidget {
             onPressed: onDismiss,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Day-type chip
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DayTypeChip extends StatelessWidget {
+  final DayClassification classification;
+  final bool isDark;
+
+  const _DayTypeChip({required this.classification, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cluster = classification.cluster;
+    final label = cluster?.inferredLabel ?? 'average';
+    final confidence = (classification.confidence * 100).round();
+
+    // Pick icon + colour based on label
+    IconData icon;
+    Color colour;
+    switch (label) {
+      case 'high-energy':
+        icon = Icons.bolt_rounded;
+        colour = isDark ? AppColors.darkAmber : AppColors.amber;
+        break;
+      case 'productive':
+        icon = Icons.trending_up_rounded;
+        colour = isDark ? AppColors.darkMoss : AppColors.moss;
+        break;
+      case 'rough':
+        icon = Icons.cloud_rounded;
+        colour = isDark ? const Color(0xFF90A4AE) : const Color(0xFF607D8B);
+        break;
+      default:
+        icon = Icons.wb_sunny_outlined;
+        colour = isDark ? AppColors.darkDeep : AppColors.deepLight;
+    }
+
+    final bg = colour.withValues(alpha: 0.10);
+    final border = colour.withValues(alpha: 0.28);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: const BorderRadius.all(AppRadius.md),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: colour, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Today looks like a ${label.replaceAll('-', ' ')} day',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colour,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  'AI confidence $confidence% · based on sleep, wake & yesterday',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colour.withValues(alpha: 0.75),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

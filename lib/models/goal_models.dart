@@ -103,11 +103,9 @@ class GoalPlan {
   }
 
   WeeklyMilestone? get currentMilestone {
-    try {
-      return milestones.firstWhere((m) => m.weekNumber == currentWeek);
-    } catch (_) {
-      return milestones.isNotEmpty ? milestones.last : null;
-    }
+    final found = milestones.where((m) => m.weekNumber == currentWeek);
+    if (found.isNotEmpty) return found.first;
+    return milestones.isNotEmpty ? milestones.last : null;
   }
 
   double get progressFraction =>

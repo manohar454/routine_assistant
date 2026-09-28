@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import '../db/database_helper.dart';
+import '../engine/day_clustering_engine.dart';
 import '../models/routine_models.dart';
 import '../services/tts_service.dart';
+import '../services/sensing_service.dart';
 import '../services/routine_confirmation_service.dart';
 import '../theme/app_theme.dart';
 
@@ -62,6 +64,9 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
   // ── Time display ──
   late Timer _clockTimer;
   DateTime _now = DateTime.now();
+
+  // ── Wake latency tracking (for day clustering) ──
+  final DateTime _alarmFiredAt = DateTime.now();
 
   // ── Motivational messages ──
   static const _motives = [
@@ -241,7 +246,35 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
     if (widget.entry != null) {
       RoutineConfirmationService.instance.confirmEntry(widget.entry!);
     }
+    // Phase 3: record wake latency and build today's day vector for clustering.
+    final latencySeconds =
+        DateTime.now().difference(_alarmFiredAt).inSeconds.toDouble();
+    _buildDayVector(latencySeconds);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// Builds today's DayVector in the background — non-blocking.
+  Future<void> _buildDayVector(double latencySeconds) async {
+    try {
+      final db = DatabaseHelper.instance;
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      final yesterdayTasks = await db.getTasksForDay(yesterday);
+      final total = yesterdayTasks.length;
+      final completed =
+          yesterdayTasks.where((t) => t.status.name == 'completed').length;
+
+      final vector = await DayClusteringEngine.instance.buildTodayVector(
+        wakeLatencySeconds: latencySeconds +
+            SensingService.instance.motionLevel * 30, // motion-adjusted
+        scheduledTasksYesterday: total,
+        completedTasksYesterday: completed,
+      );
+
+      // Attempt classification immediately so the home screen can use it.
+      await DayClusteringEngine.instance.classifyToday(vector);
+    } catch (_) {
+      // Non-critical — clustering will retry on next wake.
+    }
   }
 
   Future<void> _speakGreeting() async {

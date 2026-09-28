@@ -17,7 +17,6 @@ class LlmService {
       'https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/'
       'Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm';
 
-  bool _initialized = false;
   bool _modelReady = false;
   bool _loading = false;
 

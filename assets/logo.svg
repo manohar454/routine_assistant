@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="90" fill="#1B2B40"/>
+
+  <!-- Outer arc ring (day cycle) -->
+  <circle cx="100" cy="100" r="74" stroke="#2E6BE6" stroke-width="3" stroke-dasharray="360 60" stroke-dashoffset="90" stroke-linecap="round"/>
+
+  <!-- Clock face -->
+  <circle cx="100" cy="100" r="54" fill="#243346"/>
+  <circle cx="100" cy="100" r="48" stroke="#2E6BE6" stroke-width="1.5" fill="none" opacity="0.35"/>
+
+  <!-- Hour ticks (12 hours) -->
+  <g stroke="#4A90D9" stroke-width="2" stroke-linecap="round">
+    <!-- 12 -->
+    <line x1="100" y1="57" x2="100" y2="65"/>
+    <!-- 3 -->
+    <line x1="143" y1="100" x2="135" y2="100"/>
+    <!-- 6 -->
+    <line x1="100" y1="143" x2="100" y2="135"/>
+    <!-- 9 -->
+    <line x1="57" y1="100" x2="65" y2="100"/>
+  </g>
+
+  <!-- Hour hand (pointing to ~8 o'clock) -->
+  <line x1="100" y1="100" x2="78" y2="118"
+        stroke="#2E6BE6" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Minute hand (pointing to ~12) -->
+  <line x1="100" y1="100" x2="100" y2="69"
+        stroke="#7DB3F5" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Center dot -->
+  <circle cx="100" cy="100" r="4" fill="#2E6BE6"/>
+
+  <!-- Leaf / growth accent (top-right) — wellness motif -->
+  <path d="M128 54 Q148 46 150 66 Q138 60 128 54Z"
+        fill="#3AB87A" opacity="0.9"/>
+  <line x1="128" y1="54" x2="142" y2="66"
+        stroke="#3AB87A" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Subtle sparkle dots -->
+  <circle cx="62" cy="64" r="2.5" fill="#7DB3F5" opacity="0.6"/>
+  <circle cx="140" cy="136" r="2" fill="#3AB87A" opacity="0.5"/>
+  <circle cx="50" cy="128" r="1.5" fill="#7DB3F5" opacity="0.4"/>
+</svg>

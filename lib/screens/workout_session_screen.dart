@@ -332,6 +332,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     _valueController.clear();
     _weightController.clear();
     await _reloadLogs();
+    if (!mounted) return;
 
     final isLastExerciseInRound = _exerciseIndex == _mainExercises.length - 1;
     if (!isLastExerciseInRound) {

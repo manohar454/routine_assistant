@@ -175,6 +175,7 @@ class _RoutineTimetableScreenState extends State<RoutineTimetableScreen> {
       waterGoalMl: waterGoal,
       workoutDurationMinutes: workoutDur,
     );
+    if (!mounted) return;
     setState(() {
       _entries = defaults;
       _entries.sort((a, b) => a.timeOfDayMinutes.compareTo(b.timeOfDayMinutes));
@@ -591,7 +592,7 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
       minute: _timeMin % 60,
     );
     final picked = await showTimePicker(context: context, initialTime: tod);
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() {
       _timeMin = picked.hour * 60 + picked.minute;
     });
