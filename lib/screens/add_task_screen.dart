@@ -127,14 +127,27 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     unawaited(PreferenceLearningEngine.instance.observeTaskCreated(_category));
     unawaited(_extractLlmPreferences(task.name, _category));
 
+    final baseId   = task.id.hashCode & 0x7fffffff;
+    final plannedEnd = plannedStart.add(Duration(minutes: duration));
+
     if (plannedStart.isAfter(DateTime.now())) {
       await NotificationService.instance.scheduleTaskReminderWithActions(
         taskId: task.id,
-        notificationId: task.id.hashCode,
+        notificationId: baseId,
         title: task.name,
         body: task.voiceMessage ?? 'Time for ${task.name}',
         scheduledTime: plannedStart,
         taskCategory: _category,
+      );
+    }
+
+    // Schedule voice check-in at plannedEnd regardless of whether start is future.
+    if (plannedEnd.isAfter(DateTime.now())) {
+      await NotificationService.instance.scheduleVoiceCheckIn(
+        taskId:         task.id,
+        notificationId: baseId + 1,
+        taskName:       task.name,
+        checkInTime:    plannedEnd,
       );
     }
 

@@ -98,6 +98,14 @@ Future<void> _snoozeTaskFromNotification(String taskId) async {
 
 void _handleNotificationPayload(String? payload) {
   if (payload == null) return;
+
+  // Voice check-in tap → trigger STT flow in foreground
+  if (payload.startsWith('checkin:')) {
+    final taskId = payload.substring(8);
+    _triggerVoiceCheckInForTask(taskId);
+    return;
+  }
+
   // Accept both 'routine:' and 'missed:' prefixes
   final isRoutine = payload.startsWith('routine:');
   final isMissed  = payload.startsWith('missed:');
@@ -129,6 +137,29 @@ void _handleNotificationPayload(String? payload) {
       }
     }
   });
+}
+
+/// Looks up a task by id and starts the voice check-in flow.
+/// Runs on the main isolate so TTS + STT work normally.
+void _triggerVoiceCheckInForTask(String taskId) {
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final db    = DatabaseHelper.instance;
+    final tasks = await db.getTasksForDay(DateTime.now());
+    final task  = tasks.cast<Task?>().firstWhere(
+      (t) => t?.id == taskId,
+      orElse: () => null,
+    );
+    if (task == null || task.status == TaskStatus.completed) return;
+    // Import is deferred to avoid a circular dep — accessed via dynamic call.
+    // ignore: avoid_dynamic_calls
+    await (VoiceCheckInServiceLocator.instance as dynamic).triggerCheckIn(task);
+  });
+}
+
+/// Thin locator so notification_service.dart can reference VoiceCheckInService
+/// without a circular import (voice_checkin_service imports notification_service).
+abstract class VoiceCheckInServiceLocator {
+  static dynamic instance;
 }
 
 /// This is the RELIABILITY layer.
@@ -489,6 +520,60 @@ class NotificationService {
           'Is "$taskName" done? Open the app to confirm or reschedule.',
       scheduledTime: checkInTime,
     );
+  }
+
+  /// Schedules the voice check-in notification for [taskId] at [checkInTime].
+  ///
+  /// When tapped (or when the app receives it in foreground), the app triggers
+  /// [VoiceCheckInService.triggerCheckIn] for the STT flow.
+  /// Payload format: `checkin:<taskId>` so the foreground handler can route it.
+  Future<void> scheduleVoiceCheckIn({
+    required String taskId,
+    required int notificationId,
+    required String taskName,
+    required DateTime checkInTime,
+  }) async {
+    final tzTime = tz.TZDateTime.from(checkInTime, tz.local);
+
+    const androidDetails = AndroidNotificationDetails(
+      'task_actions',
+      'Task Reminders',
+      channelDescription: 'Task reminders with Done and Snooze actions',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    try {
+      await _plugin.zonedSchedule(
+        notificationId,
+        'Time to check in',
+        'Did you finish "$taskName"? Tap to answer.',
+        tzTime,
+        details,
+        payload: 'checkin:$taskId',
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } on PlatformException catch (e) {
+      if (e.code == 'exact_alarms_not_permitted') {
+        await _plugin.zonedSchedule(
+          notificationId,
+          'Time to check in',
+          'Did you finish "$taskName"? Tap to answer.',
+          tzTime,
+          details,
+          payload: 'checkin:$taskId',
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+        );
+      } else {
+        rethrow;
+      }
+    }
   }
 
   /// Shows an immediate notification.

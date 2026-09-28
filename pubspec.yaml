@@ -27,6 +27,7 @@ dependencies:
   device_calendar: ^4.3.0                 # read device calendar events for density signal (Phase 3)
   permission_handler: ^11.3.0             # runtime permissions for calendar + activity (Phase 3)
   file_picker: ^8.1.2                    # pick local audio files for music library
+  speech_to_text: ^7.0.0               # on-device STT for voice check-in at task end
 
 dev_dependencies:
   flutter_lints: ^6.0.0

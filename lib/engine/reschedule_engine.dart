@@ -79,10 +79,11 @@ class RescheduleEngine {
     }
 
     if (task.plannedEnd.isAfter(now)) {
-      await notifications.scheduleCheckIn(
+      await notifications.scheduleVoiceCheckIn(
+        taskId:         task.id,
         notificationId: baseId + 1,
-        taskName: task.name,
-        checkInTime: task.plannedEnd,
+        taskName:       task.name,
+        checkInTime:    task.plannedEnd,
       );
     }
   }
