@@ -72,7 +72,7 @@ Future<void> _markTaskDoneFromNotification(String taskId) async {
   TtsService.instance.speak('Great job finishing ${task.name}!');
 }
 
-/// Snoozes a task by 10 minutes from a notification action.
+/// Snoozes a task from a notification action, using the stored default duration.
 Future<void> _snoozeTaskFromNotification(String taskId) async {
   final db = DatabaseHelper.instance;
   final tasks = await db.getTasksForDay(DateTime.now());
@@ -82,7 +82,9 @@ Future<void> _snoozeTaskFromNotification(String taskId) async {
   );
   if (task == null) return;
 
-  task.plannedStart = DateTime.now().add(const Duration(minutes: 10));
+  final rawMins = await db.getSetting('snooze_duration_minutes');
+  final snoozeMins = int.tryParse(rawMins ?? '') ?? 10;
+  task.plannedStart = DateTime.now().add(Duration(minutes: snoozeMins));
   await db.updateTask(task);
 
   // Re-schedule the reminder for the new time.

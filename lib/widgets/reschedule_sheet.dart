@@ -9,6 +9,15 @@ import '../theme/app_theme.dart';
 
 enum RescheduleChoice { snooze, useSlot, shiftAll, dismiss }
 
+// ── Snooze duration helper ───────────────────────────────────────────────────
+
+const int _kDefaultSnoozeMins = 10;
+
+Future<int> getDefaultSnoozeMins() async {
+  final raw = await DatabaseHelper.instance.getSetting('snooze_duration_minutes');
+  return int.tryParse(raw ?? '') ?? _kDefaultSnoozeMins;
+}
+
 // ── Reusable function: show sheet + handle choice ────────────────────────────
 
 /// Shows the reschedule bottom sheet for [task], handles the chosen action,
@@ -22,11 +31,14 @@ Future<void> showRescheduleSheet({
   required List<Task> todayTasks,
   required Future<void> Function() onReload,
 }) async {
-  final engine = RescheduleEngine();
-  final slot    = engine.findFreeSlot(missedTask: task, todayTasks: todayTasks);
-  final isDark  = Theme.of(context).brightness == Brightness.dark;
+  final engine       = RescheduleEngine();
+  final slot         = engine.findFreeSlot(missedTask: task, todayTasks: todayTasks);
+  final isDark       = Theme.of(context).brightness == Brightness.dark;
+  final defaultMins  = await getDefaultSnoozeMins();
 
-  final choice = await showModalBottomSheet<RescheduleChoice>(
+  if (!context.mounted) return;
+
+  final result = await showModalBottomSheet<(RescheduleChoice, int)>(
     context: context,
     backgroundColor: isDark ? AppColors.darkCard : AppColors.cardSurface,
     shape: const RoundedRectangleBorder(
@@ -36,10 +48,12 @@ Future<void> showRescheduleSheet({
       task: task,
       suggestedSlot: slot,
       isDark: isDark,
+      defaultSnoozeMins: defaultMins,
     ),
   );
 
-  if (choice == null || !context.mounted) return;
+  if (result == null || !context.mounted) return;
+  final (choice, snoozeMins) = result;
 
   switch (choice) {
     case RescheduleChoice.useSlot:
@@ -103,12 +117,9 @@ Future<void> showRescheduleSheet({
       }
 
     case RescheduleChoice.snooze:
-      final newStart = DateTime.now().add(const Duration(minutes: 10));
+      final newStart = DateTime.now().add(Duration(minutes: snoozeMins));
       task.plannedStart = newStart;
-      // plannedEnd is a computed getter (plannedStart + estimatedDurationMinutes),
-      // so updating plannedStart is sufficient — no separate setter needed.
       await DatabaseHelper.instance.updateTask(task);
-      // Re-schedule voice check-in for new end time
       await NotificationService.instance.scheduleVoiceCheckIn(
         taskId:         task.id,
         notificationId: (task.id.hashCode & 0x7fffffff) + 1,
@@ -118,7 +129,7 @@ Future<void> showRescheduleSheet({
       await onReload();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('"${task.name}" snoozed 10 min'),
+          content: Text('"${task.name}" snoozed $snoozeMins min'),
           duration: const Duration(seconds: 2),
         ));
       }
@@ -153,17 +164,36 @@ Future<bool?> _confirmDialog({
 
 // ── Sheet widget (public so voice_checkin_service can use it) ─────────────────
 
-class MissedTaskSheet extends StatelessWidget {
+class MissedTaskSheet extends StatefulWidget {
   final Task task;
   final DateTime? suggestedSlot;
   final bool isDark;
+  final int defaultSnoozeMins;
 
   const MissedTaskSheet({
     super.key,
     required this.task,
     required this.suggestedSlot,
     required this.isDark,
+    this.defaultSnoozeMins = _kDefaultSnoozeMins,
   });
+
+  @override
+  State<MissedTaskSheet> createState() => _MissedTaskSheetState();
+}
+
+class _MissedTaskSheetState extends State<MissedTaskSheet> {
+  static const _chips = [5, 10, 15, 20];
+  late int _snoozeMins;
+
+  @override
+  void initState() {
+    super.initState();
+    // Snap to nearest chip value, else use default
+    _snoozeMins = _chips.contains(widget.defaultSnoozeMins)
+        ? widget.defaultSnoozeMins
+        : _kDefaultSnoozeMins;
+  }
 
   String _fmt(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
@@ -171,6 +201,7 @@ class MissedTaskSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text        = context.text;
+    final isDark      = widget.isDark;
     final accentColor = isDark ? AppColors.darkAmber : AppColors.amber;
     final inkColor    = isDark ? AppColors.darkInk : AppColors.ink;
     final subtleColor = isDark ? AppColors.darkInkSubtle : AppColors.inkSubtle;
@@ -181,6 +212,7 @@ class MissedTaskSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // drag handle
           Center(
             child: Container(
               width: 40,
@@ -192,6 +224,7 @@ class MissedTaskSheet extends StatelessWidget {
               ),
             ),
           ),
+          // task header
           Row(
             children: [
               Container(
@@ -209,7 +242,7 @@ class MissedTaskSheet extends StatelessWidget {
                   children: [
                     Text('Missed task',
                         style: text.labelSmall?.copyWith(color: subtleColor)),
-                    Text(task.name,
+                    Text(widget.task.name,
                         style: text.titleMedium?.copyWith(
                             color: inkColor, fontWeight: FontWeight.w700)),
                   ],
@@ -219,27 +252,73 @@ class MissedTaskSheet extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Scheduled ${_fmt(task.plannedStart)} – ${_fmt(task.plannedEnd)}. '
+            'Scheduled ${_fmt(widget.task.plannedStart)} – ${_fmt(widget.task.plannedEnd)}. '
             'What would you like to do?',
             style: text.bodyMedium?.copyWith(color: subtleColor),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
+
+          // ── Snooze duration chips ─────────────────────────────────────────
+          Row(
+            children: [
+              Icon(Icons.snooze_rounded, size: 14, color: subtleColor),
+              const SizedBox(width: 6),
+              Text('Snooze for', style: text.labelSmall?.copyWith(color: subtleColor)),
+              const SizedBox(width: 10),
+              ..._chips.map((mins) {
+                final selected = mins == _snoozeMins;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _snoozeMins = mins),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? accentColor
+                            : (isDark ? AppColors.darkSurface : AppColors.canvas),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: selected
+                              ? accentColor
+                              : (isDark ? AppColors.darkBorder : AppColors.mist),
+                        ),
+                      ),
+                      child: Text(
+                        '${mins}m',
+                        style: text.labelSmall?.copyWith(
+                          color: selected
+                              ? Colors.white
+                              : (isDark ? AppColors.darkInk : AppColors.ink),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ── Action options ────────────────────────────────────────────────
           RescheduleSheetOption(
             isDark: isDark,
             icon: Icons.snooze_rounded,
-            label: 'Snooze 10 min',
+            label: 'Snooze $_snoozeMins min',
             sublabel: 'Come back to it shortly — check-in re-fires',
-            onTap: () => Navigator.pop(context, RescheduleChoice.snooze),
+            onTap: () => Navigator.pop(context, (RescheduleChoice.snooze, _snoozeMins)),
           ),
           const SizedBox(height: 10),
           RescheduleSheetOption(
             isDark: isDark,
             icon: Icons.access_time_rounded,
             label: 'Choose a time',
-            sublabel: suggestedSlot != null
-                ? 'Next free slot: ${_fmt(suggestedSlot!)} — or pick your own'
+            sublabel: widget.suggestedSlot != null
+                ? 'Next free slot: ${_fmt(widget.suggestedSlot!)} — or pick your own'
                 : 'Pick any time from the clock',
-            onTap: () => Navigator.pop(context, RescheduleChoice.useSlot),
+            onTap: () => Navigator.pop(context, (RescheduleChoice.useSlot, _snoozeMins)),
           ),
           const SizedBox(height: 10),
           RescheduleSheetOption(
@@ -247,7 +326,7 @@ class MissedTaskSheet extends StatelessWidget {
             icon: Icons.update_rounded,
             label: 'Shift whole schedule',
             sublabel: 'Push all remaining flexible tasks forward',
-            onTap: () => Navigator.pop(context, RescheduleChoice.shiftAll),
+            onTap: () => Navigator.pop(context, (RescheduleChoice.shiftAll, _snoozeMins)),
           ),
           const SizedBox(height: 10),
           RescheduleSheetOption(
@@ -255,7 +334,7 @@ class MissedTaskSheet extends StatelessWidget {
             icon: Icons.close_rounded,
             label: 'Skip this task',
             sublabel: 'Leave schedule as-is',
-            onTap: () => Navigator.pop(context, RescheduleChoice.dismiss),
+            onTap: () => Navigator.pop(context, (RescheduleChoice.dismiss, _snoozeMins)),
           ),
         ],
       ),

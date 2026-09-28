@@ -25,6 +25,9 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   int _sleepFloorMinutes = 420; // 7h default
   final _sleepCtrl = TextEditingController();
 
+  // ── snooze ──
+  int _snoozeMins = 10;
+
   // ── music ──
   List<MusicTrack> _tracks = [];
   bool _loadingTracks = false;
@@ -36,13 +39,15 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final waterStr = await _db.getSetting('water_daily_goal_ml');
-    final sleepStr = await _db.getSetting('sleep_floor_minutes');
-    final tracks = await _db.getAllTracks();
+    final waterStr  = await _db.getSetting('water_daily_goal_ml');
+    final sleepStr  = await _db.getSetting('sleep_floor_minutes');
+    final snoozeStr = await _db.getSetting('snooze_duration_minutes');
+    final tracks    = await _db.getAllTracks();
     if (!mounted) return;
     setState(() {
-      _waterGoalMl = int.tryParse(waterStr ?? '') ?? 2500;
-      _sleepFloorMinutes = int.tryParse(sleepStr ?? '') ?? 420;
+      _waterGoalMl       = int.tryParse(waterStr ?? '')  ?? 2500;
+      _sleepFloorMinutes = int.tryParse(sleepStr ?? '')  ?? 420;
+      _snoozeMins        = int.tryParse(snoozeStr ?? '') ?? 10;
       _waterCtrl.text = (_waterGoalMl / 1000).toStringAsFixed(1);
       _sleepCtrl.text = (_sleepFloorMinutes ~/ 60).toString();
       _tracks = tracks;
@@ -203,6 +208,64 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     dark: dark,
                     ink: ink,
                   ),
+                ),
+              ),
+              _Divider(border: border),
+              _FieldRow(
+                icon: Icons.snooze_rounded,
+                iconColor: dark ? AppColors.darkAmber : AppColors.amber,
+                label: 'Default snooze',
+                sublabel: 'Applied when tapping Snooze on a missed task',
+                dark: dark,
+                ink: ink,
+                sub: sub,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [5, 10, 15, 20].map((mins) {
+                    final selected = mins == _snoozeMins;
+                    final accent = dark ? AppColors.darkAmber : AppColors.amber;
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: GestureDetector(
+                        onTap: () async {
+                          await _db.setSetting(
+                              'snooze_duration_minutes', mins.toString());
+                          if (!mounted) return;
+                          setState(() => _snoozeMins = mins);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? accent
+                                : (dark
+                                    ? AppColors.darkSurface
+                                    : AppColors.canvas),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: selected
+                                  ? accent
+                                  : (dark
+                                      ? AppColors.darkBorder
+                                      : AppColors.mist),
+                            ),
+                          ),
+                          child: Text(
+                            '${mins}m',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: selected
+                                  ? Colors.white
+                                  : (dark ? AppColors.darkInk : AppColors.ink),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ),
             ],
