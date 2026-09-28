@@ -419,10 +419,6 @@ class _EntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final emoji = (entry.extra['customEmoji'] as String?)?.isNotEmpty == true
-        ? entry.extra['customEmoji'] as String
-        : entry.type.emoji;
-
     return GestureDetector(
       onTap: onEdit,
       child: AnimatedOpacity(
@@ -474,8 +470,9 @@ class _EntryCard extends StatelessWidget {
                   margin: const EdgeInsets.symmetric(horizontal: 12),
                   color: (dark ? AppColors.darkBorder : AppColors.mist),
                 ),
-                // Emoji + label
-                Text(emoji, style: const TextStyle(fontSize: 22)),
+                // Type icon
+                Icon(entry.type.icon, size: 22,
+                    color: dark ? AppColors.darkInkSubtle : AppColors.inkSubtle),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -573,17 +570,14 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
   late int _timeMin;
   late List<int> _activeDays;
   late RoutineEntryType _type;
-  late String _customEmoji;
   bool _enabled = true;
   bool _testingTts = false;
-  bool _showEmojiPicker = false;
 
   @override
   void initState() {
     super.initState();
     final e = widget.entry;
     _type         = e.type;
-    _customEmoji  = (e.extra['customEmoji'] as String?) ?? '';
     _labelCtrl    = TextEditingController(text: e.label);
     _messageCtrl  = TextEditingController(text: e.message);
     _waterCtrl    = TextEditingController(
@@ -677,7 +671,6 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
       enabled: _enabled,
       extra: {
         ...widget.entry.extra,
-        'customEmoji': _customEmoji,
       },
     );
     widget.onSave(updated);
@@ -729,10 +722,7 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
                   const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Row(
                 children: [
-                  Text(
-                    (_customEmoji.isNotEmpty) ? _customEmoji : _type.emoji,
-                    style: const TextStyle(fontSize: 22),
-                  ),
+                  Icon(_type.icon, size: 22),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -767,8 +757,7 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
                         value: t,
                         child: Row(
                           children: [
-                            Text(t.emoji,
-                                style: const TextStyle(fontSize: 16)),
+                            Icon(t.icon, size: 18),
                             const SizedBox(width: 8),
                             Text(t.label),
                           ],
@@ -818,64 +807,6 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
                     ),
                     textCapitalization: TextCapitalization.sentences,
                   ),
-                  const SizedBox(height: 12),
-
-                  // Emoji picker
-                  GestureDetector(
-                    onTap: () =>
-                        setState(() => _showEmojiPicker = !_showEmojiPicker),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: dark
-                            ? AppColors.darkSurface
-                            : AppColors.cardSurface,
-                        borderRadius:
-                            const BorderRadius.all(AppRadius.sm),
-                        border: Border.all(
-                          color: dark
-                              ? AppColors.darkBorder
-                              : AppColors.mist,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Text(
-                            _customEmoji.isNotEmpty
-                                ? _customEmoji
-                                : _type.emoji,
-                            style: const TextStyle(fontSize: 22),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Emoji icon',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium,
-                            ),
-                          ),
-                          Icon(
-                            _showEmojiPicker
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            size: 18,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (_showEmojiPicker) ...[
-                    const SizedBox(height: 8),
-                    _EmojiGrid(
-                      selected: _customEmoji,
-                      onSelect: (e) => setState(() {
-                        _customEmoji = e;
-                        _showEmojiPicker = false;
-                      }),
-                    ),
-                  ],
                   const SizedBox(height: 12),
 
                   // Message
@@ -977,77 +908,6 @@ class _EntryEditSheetState extends State<_EntryEditSheet> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-// ── Emoji grid ────────────────────────────────────────────────────────────────
-
-class _EmojiGrid extends StatelessWidget {
-  final String selected;
-  final void Function(String) onSelect;
-
-  const _EmojiGrid({required this.selected, required this.onSelect});
-
-  static const _emojis = [
-    // Health & body
-    '💧','🥤','🍎','🥗','🍽️','🥕','🍳','☕','🧃',
-    // Fitness
-    '🏃','🏋️','🚴','🧘','⚽','🏀','🎾','🤸','💪','🥊',
-    // Mind & study
-    '📚','📖','✏️','🎯','💡','🧠','📝','🖥️','🎓','📐',
-    // Time & reminders
-    '⏰','🔔','🔕','⏱️','⌚','📅','🗓️','⏳',
-    // Routine
-    '🌅','🌙','😴','🛏️','🚿','🪥','🪴','🧘',
-    // Work
-    '💼','📊','📈','📋','✅','🗂️','💬','📞','📧',
-    // Fun & life
-    '🎵','🎮','🎨','📸','🌿','🌸','🐾','🚗','🌍','❤️',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = context.isDark;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: dark ? AppColors.darkCard : AppColors.canvas,
-        borderRadius: const BorderRadius.all(AppRadius.md),
-        border: Border.all(
-          color: dark ? AppColors.darkBorder : AppColors.mist,
-        ),
-      ),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        children: _emojis.map((e) {
-          final isSel = e == selected;
-          return GestureDetector(
-            onTap: () => onSelect(e),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: isSel
-                    ? (dark ? AppColors.darkDeep : AppColors.deep)
-                        .withValues(alpha: 0.2)
-                    : Colors.transparent,
-                borderRadius: const BorderRadius.all(AppRadius.xs),
-                border: isSel
-                    ? Border.all(
-                        color: dark ? AppColors.darkDeep : AppColors.deep,
-                        width: 1.5,
-                      )
-                    : null,
-              ),
-              child: Center(
-                child: Text(e, style: const TextStyle(fontSize: 20)),
-              ),
-            ),
-          );
-        }).toList(),
       ),
     );
   }

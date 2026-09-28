@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:flutter/material.dart' show IconData, Icons, TimeOfDay;
 
 // ---------------------------------------------------------------------------
 // Routine entry type — 6 generic behavioral categories
@@ -26,14 +26,14 @@ extension RoutineEntryTypeExt on RoutineEntryType {
     }
   }
 
-  String get emoji {
+  IconData get icon {
     switch (this) {
-      case RoutineEntryType.wake:      return '🌅';
-      case RoutineEntryType.hydration: return '💧';
-      case RoutineEntryType.meal:      return '🍽️';
-      case RoutineEntryType.activity:  return '⏱️';
-      case RoutineEntryType.reminder:  return '🔔';
-      case RoutineEntryType.wind:      return '🌙';
+      case RoutineEntryType.wake:      return Icons.wb_sunny_rounded;
+      case RoutineEntryType.hydration: return Icons.water_drop_rounded;
+      case RoutineEntryType.meal:      return Icons.restaurant_rounded;
+      case RoutineEntryType.activity:  return Icons.timer_rounded;
+      case RoutineEntryType.reminder:  return Icons.notifications_rounded;
+      case RoutineEntryType.wind:      return Icons.bedtime_rounded;
     }
   }
 
