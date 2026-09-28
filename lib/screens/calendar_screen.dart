@@ -116,6 +116,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
+  Future<void> _editTask(Task task) async {
+    final result = await Navigator.push<Task>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OneTimeReminderScreen(task: task),
+      ),
+    );
+    if (result != null) {
+      await _loadMonth();
+    }
+  }
+
   Future<void> _deleteTask(Task task) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -332,6 +344,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   _TaskTile(
                     task: _dayTasks[i],
                     dark: dark,
+                    onEdit: () => _editTask(_dayTasks[i]),
                     onDelete: () => _deleteTask(_dayTasks[i]),
                   ),
             ),
@@ -426,11 +439,13 @@ class _DayCell extends StatelessWidget {
 class _TaskTile extends StatelessWidget {
   final Task task;
   final bool dark;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _TaskTile({
     required this.task,
     required this.dark,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -444,7 +459,9 @@ class _TaskTile extends StatelessWidget {
     final displayHour = hour % 12 == 0 ? 12 : hour % 12;
     final timeStr = '$displayHour:$min $amPm';
 
-    return Container(
+    return GestureDetector(
+      onTap: onEdit,
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: dark ? AppColors.darkCard : AppColors.cardSurface,
@@ -485,6 +502,14 @@ class _TaskTile extends StatelessWidget {
             ),
           ),
           IconButton(
+            icon: Icon(Icons.edit_outlined,
+                size: 20,
+                color: dark
+                    ? AppColors.darkInkSubtle
+                    : AppColors.inkSubtle),
+            onPressed: onEdit,
+          ),
+          IconButton(
             icon: Icon(Icons.delete_outline,
                 size: 20,
                 color: dark
@@ -494,6 +519,7 @@ class _TaskTile extends StatelessWidget {
           ),
         ],
       ),
+    ),
     );
   }
 }

@@ -14,8 +14,10 @@ import '../theme/app_theme.dart';
 /// picker starts on that day.
 class OneTimeReminderScreen extends StatefulWidget {
   final DateTime? initialDate;
+  /// Pass an existing task to open in edit mode.
+  final Task? task;
 
-  const OneTimeReminderScreen({super.key, this.initialDate});
+  const OneTimeReminderScreen({super.key, this.initialDate, this.task});
 
   @override
   State<OneTimeReminderScreen> createState() => _OneTimeReminderScreenState();
@@ -29,19 +31,35 @@ class _OneTimeReminderScreenState extends State<OneTimeReminderScreen> {
   late DateTime _selectedDate;
   late TimeOfDay _selectedTime;
   bool _saving = false;
+  late int _durationMinutes;
+
+  bool get _isEdit => widget.task != null;
 
   @override
   void initState() {
     super.initState();
-    final base = widget.initialDate ?? DateTime.now();
-    _selectedDate = DateTime(base.year, base.month, base.day);
-    final now = TimeOfDay.now();
-    // Round up to next 5-minute mark.
-    final rawMin = now.minute;
-    final nextMin = ((rawMin + 5) ~/ 5) * 5;
-    _selectedTime = nextMin >= 60
-        ? TimeOfDay(hour: (now.hour + 1) % 24, minute: nextMin - 60)
-        : TimeOfDay(hour: now.hour, minute: nextMin);
+    final existing = widget.task;
+    if (existing != null) {
+      // Edit mode — pre-fill from existing task.
+      _selectedDate = DateTime(existing.plannedStart.year,
+          existing.plannedStart.month, existing.plannedStart.day);
+      _selectedTime = TimeOfDay(
+          hour: existing.plannedStart.hour,
+          minute: existing.plannedStart.minute);
+      _labelCtrl.text = existing.name;
+      _noteCtrl.text = existing.voiceMessage ?? '';
+      _durationMinutes = existing.estimatedDurationMinutes;
+    } else {
+      final base = widget.initialDate ?? DateTime.now();
+      _selectedDate = DateTime(base.year, base.month, base.day);
+      final now = TimeOfDay.now();
+      final rawMin = now.minute;
+      final nextMin = ((rawMin + 5) ~/ 5) * 5;
+      _selectedTime = nextMin >= 60
+          ? TimeOfDay(hour: (now.hour + 1) % 24, minute: nextMin - 60)
+          : TimeOfDay(hour: now.hour, minute: nextMin);
+      _durationMinutes = 30;
+    }
   }
 
   @override
@@ -93,30 +111,42 @@ class _OneTimeReminderScreenState extends State<OneTimeReminderScreen> {
         _selectedTime.minute,
       );
 
-      final task = Task(
-        id: const Uuid().v4(),
-        name: label,
-        category: 'reminder',
-        plannedStart: plannedStart,
-        estimatedDurationMinutes: 5,
-        flexibility: TaskFlexibility.fixed,
-        voiceMessage: note.isEmpty ? null : note,
-      );
+      final existing = widget.task;
+      final Task task;
+      if (existing != null) {
+        // Edit mode — mutate fields directly (Task fields are non-final).
+        existing.name = label;
+        existing.plannedStart = plannedStart;
+        existing.estimatedDurationMinutes = _durationMinutes;
+        existing.voiceMessage = note.isEmpty ? null : note;
+        await DatabaseHelper.instance.updateTask(existing);
+        task = existing;
+      } else {
+        task = Task(
+          id: const Uuid().v4(),
+          name: label,
+          category: 'reminder',
+          plannedStart: plannedStart,
+          estimatedDurationMinutes: _durationMinutes,
+          flexibility: TaskFlexibility.flexible,
+          voiceMessage: note.isEmpty ? null : note,
+        );
+        await DatabaseHelper.instance.insertTask(task);
+      }
 
-      await DatabaseHelper.instance.insertTask(task);
-
-      // Schedule the notification.
+      // Cancel old notification and reschedule.
       final notifId = task.id.hashCode.abs() % 2147483647;
+      await NotificationService.instance.cancel(notifId);
       await NotificationService.instance.scheduleTaskReminder(
         notificationId: notifId,
-        title: '⏰ $label',
+        title: label,
         body: note.isEmpty ? 'Time for your reminder!' : note,
         scheduledTime: plannedStart,
         taskCategory: 'reminder',
       );
 
       if (!mounted) return;
-      Navigator.pop(context, task); // return task to caller (calendar)
+      Navigator.pop(context, task);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -136,7 +166,7 @@ class _OneTimeReminderScreenState extends State<OneTimeReminderScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('One-Time Reminder'),
+        title: Text(_isEdit ? 'Edit Reminder' : 'One-Time Reminder'),
       ),
       body: Form(
         key: _formKey,
@@ -204,6 +234,25 @@ class _OneTimeReminderScreenState extends State<OneTimeReminderScreen> {
               ],
             ),
 
+            const SizedBox(height: 20),
+
+            // ── Duration ─────────────────────────────────────────────────────
+            Text('Duration (minutes)', style: text.titleSmall),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                for (final mins in [15, 30, 45, 60, 90])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text('$mins'),
+                      selected: _durationMinutes == mins,
+                      onSelected: (_) => setState(() => _durationMinutes = mins),
+                    ),
+                  ),
+              ],
+            ),
+
             const SizedBox(height: 40),
 
             // ── Save button ──────────────────────────────────────────────────
@@ -217,7 +266,7 @@ class _OneTimeReminderScreenState extends State<OneTimeReminderScreen> {
                           strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.notifications_active_outlined),
-              label: Text(_saving ? 'Saving…' : 'Schedule Reminder'),
+              label: Text(_saving ? 'Saving…' : (_isEdit ? 'Save Changes' : 'Schedule Reminder')),
             ),
 
             const SizedBox(height: 12),
