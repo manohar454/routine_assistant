@@ -280,6 +280,7 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
   Future<void> _speakGreeting() async {
     if (_ttsSpoken) return;
     _ttsSpoken = true;
+    if (!mounted) return;
     final msg = widget.entry?.message ??
         RoutineEntryType.wake.defaultMessage();
     await TtsService.instance.speak(msg);
@@ -311,7 +312,9 @@ class _WakeAlarmScreenState extends State<WakeAlarmScreen>
       if (path != null) {
         _player = AudioPlayer();
         await _player!.setFilePath(path);
+        if (!mounted) { _player?.stop(); _player?.dispose(); _player = null; return; }
         await _player!.setLoopMode(LoopMode.one);
+        if (!mounted) { _player?.stop(); _player?.dispose(); _player = null; return; }
         await _player!.play();
         if (mounted) setState(() => _musicPlaying = true);
       }

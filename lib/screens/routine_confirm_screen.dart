@@ -126,6 +126,7 @@ class _RoutineConfirmScreenState extends State<RoutineConfirmScreen> {
           IconButton(
             icon: const Icon(Icons.volume_up),
             onPressed: () {
+              TtsService.instance.stop();
               _ttsSpoken = false;
               _speakPrompt();
             },

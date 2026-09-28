@@ -104,12 +104,14 @@ class TaskCard extends StatelessWidget {
           children: [
             // Time column
             SizedBox(
-              width: 44,
+              width: 48,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     _startLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: context.text.titleSmall?.copyWith(
                       color: isDone
                           ? (isDark
@@ -125,6 +127,8 @@ class TaskCard extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     _endLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: context.text.bodySmall,
                   ),
                 ],

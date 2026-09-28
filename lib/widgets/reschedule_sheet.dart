@@ -119,12 +119,15 @@ Future<void> showRescheduleSheet({
     case RescheduleChoice.snooze:
       final newStart = DateTime.now().add(Duration(minutes: snoozeMins));
       task.plannedStart = newStart;
+      // Compute new end explicitly — avoids race with stale getter if task
+      // had already passed its original plannedEnd.
+      final newEnd = newStart.add(Duration(minutes: task.estimatedDurationMinutes));
       await DatabaseHelper.instance.updateTask(task);
       await NotificationService.instance.scheduleVoiceCheckIn(
         taskId:         task.id,
         notificationId: (task.id.hashCode & 0x7fffffff) + 1,
         taskName:       task.name,
-        checkInTime:    task.plannedEnd,
+        checkInTime:    newEnd,
       );
       await onReload();
       if (context.mounted) {

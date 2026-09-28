@@ -76,14 +76,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
       return;
     }
 
+    final days = _daysInRange();
+    final rangeLabel = _range == _ApplyRange.week ? 'week' : 'month';
+    final totalTasks = _entries.length * days.length;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Apply to this ${_range == _ApplyRange.week ? 'week' : 'month'}?'),
+        title: Text('Apply to this $rangeLabel?'),
         content: Text(
           'This will create ${_entries.length} task(s) × '
-          '${_range == _ApplyRange.week ? _daysInRange().length : _daysInRange().length} days '
-          '= ${_entries.length * _daysInRange().length} tasks.\n\n'
+          '${days.length} days = $totalTasks tasks.\n\n'
           'Existing tasks on those days are not affected.',
         ),
         actions: [
@@ -97,35 +100,39 @@ class _TimetableScreenState extends State<TimetableScreen> {
     setState(() => _applying = true);
 
     final uuid = const Uuid();
-    final days = _daysInRange();
     int created = 0;
 
-    for (final day in days) {
-      for (final entry in _entries) {
-        final task = entry.toTask(date: day, taskId: uuid.v4());
-        await _db.insertTask(task);
+    try {
+      for (final day in days) {
+        if (!mounted) break;
+        for (final entry in _entries) {
+          if (!mounted) break;
+          final task = entry.toTask(date: day, taskId: uuid.v4());
+          await _db.insertTask(task);
 
-        // Schedule voice check-in notification at task end
-        if (task.plannedEnd.isAfter(DateTime.now())) {
-          final baseId = task.id.hashCode & 0x7fffffff;
-          await NotificationService.instance.scheduleVoiceCheckIn(
-            taskId: task.id,
-            notificationId: baseId + 1,
-            taskName: task.name,
-            checkInTime: task.plannedEnd,
-          );
+          // Schedule voice check-in notification at task end
+          if (task.plannedEnd.isAfter(DateTime.now())) {
+            final baseId = task.id.hashCode & 0x7fffffff;
+            await NotificationService.instance.scheduleVoiceCheckIn(
+              taskId: task.id,
+              notificationId: baseId + 1,
+              taskName: task.name,
+              checkInTime: task.plannedEnd,
+            );
+          }
+          created++;
         }
-        created++;
       }
+    } finally {
+      if (mounted) setState(() => _applying = false);
     }
 
-    if (!mounted) return;
-    setState(() => _applying = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('$created tasks created for this ${_range == _ApplyRange.week ? 'week' : 'month'}'),
-      duration: const Duration(seconds: 3),
-    ));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$created tasks created for this $rangeLabel'),
+        duration: const Duration(seconds: 3),
+      ));
+    }
   }
 
   List<DateTime> _daysInRange() {

@@ -229,9 +229,6 @@ class DatabaseHelper {
         if (oldVersion < 14) {
           await _createRoutineLogsTable(db);
         }
-        if (oldVersion < 16) {
-          await _createTimetableTable(db);
-        }
         if (oldVersion < 15) {
           // Migrate routine_entries.type from old lifestyle-specific names
           // to the new 6 generic behavioral categories.
@@ -259,6 +256,9 @@ class DatabaseHelper {
               [entry.value, entry.key],
             );
           }
+        }
+        if (oldVersion < 16) {
+          await _createTimetableTable(db);
         }
       },
     );
