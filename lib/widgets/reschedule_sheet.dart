@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../engine/reschedule_engine.dart';
 import '../models/task.dart';
+import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 
 // ── Shared enum ──────────────────────────────────────────────────────────────
 
-enum RescheduleChoice { useSlot, shiftAll, dismiss }
+enum RescheduleChoice { snooze, useSlot, shiftAll, dismiss }
 
 // ── Reusable function: show sheet + handle choice ────────────────────────────
 
@@ -98,6 +99,26 @@ Future<void> showRescheduleSheet({
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Schedule shifted to match current time'),
           duration: Duration(seconds: 3),
+        ));
+      }
+
+    case RescheduleChoice.snooze:
+      final newStart = DateTime.now().add(const Duration(minutes: 10));
+      task.plannedStart = newStart;
+      task.plannedEnd   = newStart.add(Duration(minutes: task.estimatedDurationMinutes));
+      await DatabaseHelper.instance.updateTask(task);
+      // Re-schedule voice check-in for new end time
+      await NotificationService.instance.scheduleVoiceCheckIn(
+        taskId:         task.id,
+        notificationId: (task.id.hashCode & 0x7fffffff) + 1,
+        taskName:       task.name,
+        checkInTime:    task.plannedEnd,
+      );
+      await onReload();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"${task.name}" snoozed 10 min'),
+          duration: const Duration(seconds: 2),
         ));
       }
 
@@ -202,6 +223,14 @@ class MissedTaskSheet extends StatelessWidget {
             style: text.bodyMedium?.copyWith(color: subtleColor),
           ),
           const SizedBox(height: 24),
+          RescheduleSheetOption(
+            isDark: isDark,
+            icon: Icons.snooze_rounded,
+            label: 'Snooze 10 min',
+            sublabel: 'Come back to it shortly — check-in re-fires',
+            onTap: () => Navigator.pop(context, RescheduleChoice.snooze),
+          ),
+          const SizedBox(height: 10),
           RescheduleSheetOption(
             isDark: isDark,
             icon: Icons.access_time_rounded,
