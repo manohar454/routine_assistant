@@ -1,4 +1,5 @@
 import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
 
 /// Manages the on-device Gemma 3 1B model lifecycle.
 ///
@@ -19,10 +20,11 @@ class LlmService {
   bool _modelReady = false;
   bool _loading = false;
 
-  /// Call once in main() before runApp — no-op in flutter_gemma 1.x
-  /// (engine registration is handled automatically).
+  /// Call once in main() before runApp — registers the LiteRt inference engine.
   static Future<void> initialize() async {
-    // flutter_gemma 1.x does not require explicit engine registration.
+    await FlutterGemma.initialize(
+      inferenceEngines: [LiteRtEngine()],
+    );
   }
 
   /// True once the model has been downloaded and is ready to use.
@@ -33,19 +35,25 @@ class LlmService {
 
   /// Downloads and loads the Gemma 3 1B model.
   /// Safe to call multiple times — no-ops if already loaded or loading.
-  /// [onProgress] receives 0.0–1.0 download progress.
+  /// [onProgress] receives 0–100 integer progress.
   Future<void> loadModel({void Function(double)? onProgress}) async {
     if (_modelReady || _loading) return;
     _loading = true;
 
     try {
-      final gemma = FlutterGemmaPlugin.instance;
-      await gemma.loadAsset(
-        modelUrl: _modelUrl,
-        onProgress: onProgress != null
-            ? (progress) => onProgress(progress)
-            : null,
-      );
+      final installer = FlutterGemma.installModel(
+        modelType: ModelType.gemmaIt,
+        fileType: ModelFileType.litertlm,
+      ).fromNetwork(_modelUrl);
+
+      if (onProgress != null) {
+        await installer
+            .withProgress((p) => onProgress(p / 100.0))
+            .install();
+      } else {
+        await installer.install();
+      }
+
       _modelReady = true;
     } catch (_) {
       // Model load failed — app continues with rule-based fallbacks.
@@ -63,12 +71,12 @@ class LlmService {
     if (!_modelReady) return '';
 
     try {
-      final gemma = FlutterGemmaPlugin.instance;
-      final response = await gemma.getResponse(
-        prompt: prompt,
-        maxTokens: maxTokens,
-      );
-      return response ?? '';
+      final model = await FlutterGemma.getActiveModel(maxTokens: maxTokens);
+      final chat = await model.createChat();
+      await chat.addQueryChunk(Message.text(text: prompt, isUser: true));
+      final response = await chat.generateChatResponse();
+      if (response is TextResponse) return response.token;
+      return '';
     } catch (_) {
       return '';
     }
@@ -95,16 +103,12 @@ Output only the category name, nothing else.''';
     final result = await infer(prompt, maxTokens: 16);
     final trimmed = result.trim();
 
-    // Validate the response is actually one of our categories.
     for (final cat in categories) {
       if (trimmed.toLowerCase() == cat.toLowerCase()) return cat;
     }
-
-    // Partial match fallback.
     for (final cat in categories) {
       if (trimmed.toLowerCase().contains(cat.toLowerCase())) return cat;
     }
-
     return null;
   }
 
