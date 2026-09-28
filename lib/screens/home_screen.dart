@@ -314,10 +314,10 @@ class _HomeScreenState extends State<HomeScreen>
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Step 1: show options sheet.
     final choice = await showModalBottomSheet<_RescheduleChoice>(
       context: context,
-      backgroundColor:
-          isDark ? AppColors.darkCard : AppColors.cardSurface,
+      backgroundColor: isDark ? AppColors.darkCard : AppColors.cardSurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -331,31 +331,66 @@ class _HomeScreenState extends State<HomeScreen>
     if (choice == null || !mounted) return;
 
     switch (choice) {
+      // ── Move to a specific time ──────────────────────────────────────────
       case _RescheduleChoice.useSlot:
-        if (slot != null) {
-          task.plannedStart = slot;
-          await db.updateTask(task);
-          await _loadToday();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '"${task.name}" rescheduled to '
-                  '${slot.hour.toString().padLeft(2, '0')}:${slot.minute.toString().padLeft(2, '0')}',
-                ),
-                duration: const Duration(seconds: 3),
+        // Let user pick a time; pre-fill with suggested slot (or now).
+        final initialTime = slot != null
+            ? TimeOfDay(hour: slot.hour, minute: slot.minute)
+            : TimeOfDay.now();
+
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: initialTime,
+          helpText: 'Choose new start time',
+        );
+        if (picked == null || !mounted) return;
+
+        final now = DateTime.now();
+        final newStart = DateTime(
+            now.year, now.month, now.day, picked.hour, picked.minute);
+
+        // Step 2: confirm before applying.
+        final confirmed = await _confirmDialog(
+          context: context,
+          title: 'Reschedule "${task.name}"?',
+          body:
+              'Move to ${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}?',
+        );
+        if (confirmed != true || !mounted) return;
+
+        task.plannedStart = newStart;
+        await db.updateTask(task);
+        await _loadToday();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '"${task.name}" rescheduled to '
+                '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}',
               ),
-            );
-          }
+              duration: const Duration(seconds: 3),
+            ),
+          );
         }
+
+      // ── Shift whole schedule ─────────────────────────────────────────────
       case _RescheduleChoice.shiftAll:
-        final delayMinutes =
-            DateTime.now().difference(task.plannedStart).inMinutes.clamp(1, 1440);
+        final confirmed = await _confirmDialog(
+          context: context,
+          title: 'Shift entire schedule?',
+          body:
+              'All remaining flexible tasks will be pushed forward to fit the current time.',
+        );
+        if (confirmed != true || !mounted) return;
+
+        final delayMinutes = DateTime.now()
+            .difference(task.plannedStart)
+            .inMinutes
+            .clamp(1, 1440);
         await rescheduleEngine.applyDelay(
           delayedTask: task,
           delayMinutes: delayMinutes,
         );
-        // Move the missed task itself.
         task.plannedStart = DateTime.now();
         await db.updateTask(task);
         await _loadToday();
@@ -367,10 +402,35 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           );
         }
+
       case _RescheduleChoice.dismiss:
         break;
     }
   }
+
+  /// Generic two-button confirm dialog. Returns true on confirm, false/null on cancel.
+  Future<bool?> _confirmDialog({
+    required BuildContext context,
+    required String title,
+    required String body,
+  }) =>
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      );
 
   Future<void> _checkIn(Task task) async {
     String subtitle = 'Is this done?';
@@ -2049,17 +2109,17 @@ class _MissedTaskSheet extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          // Option 1: move to free slot
-          if (suggestedSlot != null) ...[
-            _SheetOption(
-              isDark: isDark,
-              icon: Icons.move_down_rounded,
-              label: 'Move to ${_fmt(suggestedSlot!)}',
-              sublabel: 'Next free slot today',
-              onTap: () => Navigator.pop(context, _RescheduleChoice.useSlot),
-            ),
-            const SizedBox(height: 10),
-          ],
+          // Option 1: pick a new time (suggest free slot if found)
+          _SheetOption(
+            isDark: isDark,
+            icon: Icons.access_time_rounded,
+            label: 'Choose a time',
+            sublabel: suggestedSlot != null
+                ? 'Next free slot: ${_fmt(suggestedSlot!)} — or pick your own'
+                : 'Pick any time from the clock',
+            onTap: () => Navigator.pop(context, _RescheduleChoice.useSlot),
+          ),
+          const SizedBox(height: 10),
 
           // Option 2: shift entire schedule
           _SheetOption(
