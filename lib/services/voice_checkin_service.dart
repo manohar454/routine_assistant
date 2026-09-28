@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../db/database_helper.dart';
 import '../models/task.dart';
+import '../widgets/reschedule_sheet.dart';
 import 'tts_service.dart';
 import 'notification_service.dart';
 
@@ -75,7 +77,7 @@ class VoiceCheckInService {
       await _markDone(task);
       return true;
     } else if (_isNo(heard)) {
-      await _snooze(task);
+      await _openRescheduleSheet(task);
       return true;
     } else {
       // No response or unintelligible → notification fallback
@@ -105,24 +107,23 @@ class VoiceCheckInService {
     await TtsService.instance.speak('Great job finishing ${task.name}!');
   }
 
-  Future<void> _snooze(Task task) async {
-    final newStart = DateTime.now().add(const Duration(minutes: 10));
-    task.plannedStart = newStart;
-    task.plannedEnd   = newStart.add(Duration(minutes: task.estimatedDurationMinutes));
-    await DatabaseHelper.instance.updateTask(task);
+  /// Opens the reschedule bottom sheet via the global navigator key.
+  Future<void> _openRescheduleSheet(Task task) async {
+    await TtsService.instance.speak('Okay, let me open the reschedule options for you.');
+    await Future.delayed(const Duration(milliseconds: 800));
 
-    // Re-schedule the voice check-in for the new end time
-    await NotificationService.instance.scheduleVoiceCheckIn(
-      taskId:         task.id,
-      notificationId: (task.id.hashCode & 0x7fffffff) + 1,
-      taskName:       task.name,
-      checkInTime:    task.plannedEnd,
-    );
-
-    // Quiet confirmation so user knows it's been pushed
-    await TtsService.instance.speak(
-      'Okay, I\'ll check in again in 10 minutes.',
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navigator = routineNavigatorKey.currentState;
+      if (navigator == null) return;
+      navigator.push(
+        PageRouteBuilder(
+          opaque: false,
+          barrierDismissible: true,
+          barrierColor: Colors.black54,
+          pageBuilder: (ctx, _, __) => _RescheduleSheetPage(task: task),
+        ),
+      );
+    });
   }
 
   Future<void> _scheduleImmediateFallbackNotification(Task task) async {
@@ -137,4 +138,44 @@ class VoiceCheckInService {
       taskCategory:   task.category,
     );
   }
+}
+
+// ── Full-screen transparent route that hosts the reschedule sheet ─────────────
+
+class _RescheduleSheetPage extends StatefulWidget {
+  final Task task;
+  const _RescheduleSheetPage({required this.task});
+
+  @override
+  State<_RescheduleSheetPage> createState() => _RescheduleSheetPageState();
+}
+
+class _RescheduleSheetPageState extends State<_RescheduleSheetPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Open the sheet on the first frame so it appears immediately.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _open());
+  }
+
+  Future<void> _open() async {
+    final db         = DatabaseHelper.instance;
+    final todayTasks = await db.getTasksForDay(DateTime.now());
+
+    if (!mounted) return;
+    await showRescheduleSheet(
+      context: context,
+      task: widget.task,
+      todayTasks: todayTasks,
+      onReload: () async {
+        // No home_screen reload here — home_screen will pick up changes
+        // on next _loadToday tick or when the user returns to it.
+      },
+    );
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      const SizedBox.shrink(); // transparent scaffold — sheet appears over current route
 }
